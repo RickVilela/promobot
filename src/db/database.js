@@ -1,0 +1,157 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+
+const DB_PATH = path.join(__dirname, '../../data/promobot.db');
+
+let db;
+
+function getDb() {
+  if (!db) {
+    const fs = require('fs');
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    db = new Database(DB_PATH);
+    db.pragma('journal_mode = WAL');
+    initSchema();
+  }
+  return db;
+}
+
+function initSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS promotions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ml_id TEXT UNIQUE,
+      title TEXT NOT NULL,
+      original_price REAL,
+      sale_price REAL NOT NULL,
+      discount_percent INTEGER,
+      image_url TEXT,
+      original_url TEXT NOT NULL,
+      affiliate_url TEXT NOT NULL,
+      category TEXT,
+      seller TEXT,
+      found_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      posted_at DATETIME,
+      status TEXT DEFAULT 'pending'
+    );
+
+    CREATE TABLE IF NOT EXISTS channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      category_filter TEXT,
+      active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      promotion_id INTEGER REFERENCES promotions(id),
+      channel_id INTEGER REFERENCES channels(id),
+      telegram_message_id TEXT,
+      sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      clicks INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_promotions_ml_id ON promotions(ml_id);
+    CREATE INDEX IF NOT EXISTS idx_promotions_status ON promotions(status);
+    CREATE INDEX IF NOT EXISTS idx_promotions_found_at ON promotions(found_at);
+  `);
+}
+
+// Promoções
+function savePromotion(promo) {
+  const db = getDb();
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO promotions 
+      (ml_id, title, original_price, sale_price, discount_percent, image_url, original_url, affiliate_url, category, seller)
+    VALUES 
+      (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller)
+  `);
+  const result = stmt.run(promo);
+  return result.changes > 0;
+}
+
+function getPendingPromotions() {
+  return getDb().prepare(`
+    SELECT * FROM promotions 
+    WHERE status = 'pending' 
+    ORDER BY discount_percent DESC, found_at DESC
+    LIMIT 20
+  `).all();
+}
+
+function markAsPosted(id) {
+  getDb().prepare(`
+    UPDATE promotions SET status = 'posted', posted_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(id);
+}
+
+function markAsIgnored(id) {
+  getDb().prepare(`
+    UPDATE promotions SET status = 'ignored' WHERE id = ?
+  `).run(id);
+}
+
+function getHistory(limit = 50, offset = 0) {
+  return getDb().prepare(`
+    SELECT p.*, 
+      COUNT(DISTINCT po.id) as post_count,
+      GROUP_CONCAT(DISTINCT c.name) as channel_names
+    FROM promotions p
+    LEFT JOIN posts po ON p.id = po.promotion_id
+    LEFT JOIN channels c ON po.channel_id = c.id
+    WHERE p.status IN ('posted', 'pending', 'ignored')
+    GROUP BY p.id
+    ORDER BY p.found_at DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, offset);
+}
+
+function getStats() {
+  const db = getDb();
+  return {
+    today: db.prepare(`SELECT COUNT(*) as n FROM promotions WHERE date(found_at) = date('now')`).get().n,
+    posted: db.prepare(`SELECT COUNT(*) as n FROM promotions WHERE status = 'posted'`).get().n,
+    pending: db.prepare(`SELECT COUNT(*) as n FROM promotions WHERE status = 'pending'`).get().n,
+    total: db.prepare(`SELECT COUNT(*) as n FROM promotions`).get().n,
+    avgDiscount: Math.round(db.prepare(`SELECT AVG(discount_percent) as n FROM promotions WHERE discount_percent IS NOT NULL`).get().n || 0),
+  };
+}
+
+// Canais
+function getChannels() {
+  return getDb().prepare(`SELECT * FROM channels ORDER BY active DESC, name`).all();
+}
+
+function saveChannel(channel) {
+  getDb().prepare(`
+    INSERT OR REPLACE INTO channels (telegram_id, name, category_filter, active)
+    VALUES (@telegram_id, @name, @category_filter, @active)
+  `).run(channel);
+}
+
+function toggleChannel(id) {
+  getDb().prepare(`UPDATE channels SET active = CASE WHEN active=1 THEN 0 ELSE 1 END WHERE id = ?`).run(id);
+}
+
+// Posts
+function savePost(post) {
+  getDb().prepare(`
+    INSERT INTO posts (promotion_id, channel_id, telegram_message_id)
+    VALUES (@promotion_id, @channel_id, @telegram_message_id)
+  `).run(post);
+}
+
+module.exports = {
+  getDb, savePromotion, getPendingPromotions, markAsPosted, markAsIgnored,
+  getHistory, getStats, getChannels, saveChannel, toggleChannel, savePost
+};
