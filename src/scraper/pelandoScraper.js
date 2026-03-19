@@ -1,83 +1,35 @@
 const axios = require('axios');
+const cheerio = require('cheerio');
 
-// Pelando.com.br — API GraphQL pública (sem autenticação)
-// Agrega promoções de Amazon, ML, Shopee, Magalu, KaBum, etc.
-// Os usuários postam com preço original e preço com desconto
-
-const PELANDO_API = 'https://api.pelando.com.br/api/v2/graphql';
+// Pelando usa GraphQL mas o endpoint correto é via www.pelando.com.br/graphql
+// Confirmado via inspeção do tráfego do site
+const PELANDO_GQL = 'https://www.pelando.com.br/graphql';
 
 const HEADERS = {
   'Content-Type': 'application/json',
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
   'Origin': 'https://www.pelando.com.br',
   'Referer': 'https://www.pelando.com.br/',
 };
 
-// Query GraphQL para buscar promoções quentes
-const QUERY_HOT = `
-  query GetHotDeals($page: Int, $size: Int) {
-    threads(
-      filter: HOT
-      page: $page
-      size: $size
-    ) {
-      edges {
-        node {
-          id
-          title
-          price
-          nextBestPrice
-          discountFixed
-          discountPercent
-          temperature
-          threadUrl
-          status
-          image {
-            url
-          }
-          store {
-            name
-            displayName
-          }
-          category {
-            name
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-      }
-    }
-  }
-`;
-
-// Query para buscar promoções recentes
-const QUERY_RECENT = `
-  query GetRecentDeals($page: Int, $size: Int) {
-    threads(
-      filter: RECENT
-      page: $page
-      size: $size
-    ) {
-      edges {
-        node {
-          id
-          title
-          price
-          nextBestPrice
-          discountFixed
-          discountPercent
-          temperature
-          threadUrl
-          status
-          image {
-            url
-          }
-          store {
-            name
-            displayName
-          }
-        }
+// Query usada pelo próprio site (capturada via DevTools)
+const QUERY = `
+  query FeedQuery($feedType: FeedType!, $page: Int!, $pageSize: Int!, $categoryIds: [String]) {
+    feed(feedType: $feedType, page: $page, pageSize: $pageSize, categoryIds: $categoryIds) {
+      threads {
+        id
+        title
+        price
+        priceOld
+        discount
+        temperature
+        status
+        threadUrl: url
+        imageUrl
+        storeName
+        commentCount
+        published
       }
     }
   }
@@ -85,96 +37,163 @@ const QUERY_RECENT = `
 
 function buildAffiliateUrl(url, affiliateTag) {
   if (!url) return url;
-  // Para links do ML dentro do Pelando, injeta tag de afiliado
   try {
     const u = new URL(url);
     if (u.hostname.includes('mercadolivre') || u.hostname.includes('mercadolibre')) {
       u.searchParams.set('mt', affiliateTag);
     }
     return u.toString();
-  } catch {
-    return url;
-  }
+  } catch { return url; }
 }
 
-function processNode(node, affiliateTag, minDiscount) {
+function processThread(thread, affiliateTag, minDiscount) {
   try {
-    if (!node || node.status !== 'ACTIVE') return null;
+    if (!thread || thread.status !== 'ACTIVE') return null;
 
-    const salePrice = node.price ? parseFloat(node.price) : null;
+    const salePrice = thread.price != null ? parseFloat(thread.price) : null;
     if (!salePrice || salePrice <= 0) return null;
 
-    const originalPrice = node.nextBestPrice ? parseFloat(node.nextBestPrice) : null;
+    const originalPrice = thread.priceOld != null ? parseFloat(thread.priceOld) : null;
 
-    // Desconto em % — o Pelando já calcula isso
-    let discountPercent = node.discountPercent
-      ? Math.round(parseFloat(node.discountPercent))
-      : null;
-
-    // Calcula se não veio pronto
+    let discountPercent = thread.discount ? Math.abs(parseInt(thread.discount)) : null;
     if (!discountPercent && originalPrice && originalPrice > salePrice) {
       discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
     }
-
-    if (discountPercent !== null && discountPercent < minDiscount) return null;
-    if (!discountPercent) return null; // só posta se tem desconto confirmado
-
-    const imageUrl = node.image?.url || null;
-    const store = node.store?.displayName || node.store?.name || '';
+    if (!discountPercent || discountPercent < minDiscount) return null;
 
     return {
-      ml_id:            'PELANDO_' + node.id,
-      title:            (node.title || '').substring(0, 200),
+      ml_id:            'PELANDO_' + thread.id,
+      title:            (thread.title || '').substring(0, 200),
       original_price:   originalPrice,
       sale_price:       salePrice,
       discount_percent: discountPercent,
-      image_url:        imageUrl,
-      original_url:     node.threadUrl,
-      affiliate_url:    buildAffiliateUrl(node.threadUrl, affiliateTag),
-      category:         node.category?.name || store || 'geral',
-      seller:           store,
+      image_url:        thread.imageUrl || null,
+      original_url:     thread.threadUrl,
+      affiliate_url:    buildAffiliateUrl(thread.threadUrl, affiliateTag),
+      category:         thread.storeName || 'geral',
+      seller:           thread.storeName || null,
       source:           'pelando',
     };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-async function fetchPelando(query, variables, affiliateTag, minDiscount) {
+async function fetchViaGraphQL(feedType, affiliateTag, minDiscount) {
   const resp = await axios.post(
-    PELANDO_API,
-    { query, variables },
+    PELANDO_GQL,
+    {
+      query: QUERY,
+      variables: { feedType, page: 1, pageSize: 50 },
+    },
     { headers: HEADERS, timeout: 15000 }
   );
 
-  const edges = resp.data?.data?.threads?.edges || [];
+  const threads = resp.data?.data?.feed?.threads || [];
+  return threads.map(t => processThread(t, affiliateTag, minDiscount)).filter(Boolean);
+}
+
+// Fallback: scraping HTML da página inicial do Pelando
+async function fetchViaHtml(affiliateTag, minDiscount) {
+  const resp = await axios.get('https://www.pelando.com.br/', {
+    headers: {
+      'User-Agent': HEADERS['User-Agent'],
+      'Accept': 'text/html',
+    },
+    timeout: 15000,
+  });
+
+  const $ = cheerio.load(resp.data);
   const results = [];
 
-  for (const edge of edges) {
-    const promo = processNode(edge.node, affiliateTag, minDiscount);
-    if (promo) results.push(promo);
+  // Tenta extrair do __NEXT_DATA__ (Next.js injeta dados aqui)
+  const nextData = $('script#__NEXT_DATA__').html();
+  if (nextData) {
+    try {
+      const data = JSON.parse(nextData);
+      // Navega pela estrutura do Next.js
+      const pages = data?.props?.pageProps;
+      const threads =
+        pages?.initialData?.feed?.threads ||
+        pages?.feed?.threads ||
+        pages?.threads || [];
+
+      for (const t of threads) {
+        const p = processThread(t, affiliateTag, minDiscount);
+        if (p) results.push(p);
+      }
+
+      if (results.length > 0) {
+        console.log(`[Pelando] __NEXT_DATA__: ${results.length} promos`);
+        return results;
+      }
+    } catch {}
   }
+
+  // Fallback HTML direto
+  $('[data-testid="deal-card"], [class*="DealCard"], [class*="deal-card"]').each((_, el) => {
+    try {
+      const $el = $(el);
+      const title = $el.find('[class*="title"], h2, h3').first().text().trim();
+      if (!title) return;
+
+      const priceText = $el.find('[class*="price"], [class*="Price"]').first().text();
+      const salePrice = parseFloat(priceText.replace(/[^\d,]/g, '').replace(',', '.'));
+      if (!salePrice) return;
+
+      const link = $el.find('a').first().attr('href');
+      const img = $el.find('img').first().attr('src') || $el.find('img').first().attr('data-src');
+      const discountText = $el.find('[class*="discount"], [class*="Discount"]').first().text();
+      const discountMatch = discountText.match(/(\d+)/);
+      const discountPercent = discountMatch ? parseInt(discountMatch[1]) : null;
+
+      if (!discountPercent || discountPercent < minDiscount) return;
+
+      const url = link ? (link.startsWith('http') ? link : 'https://www.pelando.com.br' + link) : null;
+      if (!url) return;
+
+      results.push({
+        ml_id:            'PELANDO_HTML_' + Math.random().toString(36).substr(2, 9),
+        title:            title.substring(0, 200),
+        original_price:   null,
+        sale_price:       salePrice,
+        discount_percent: discountPercent,
+        image_url:        img || null,
+        original_url:     url,
+        affiliate_url:    buildAffiliateUrl(url, affiliateTag),
+        category:         'geral',
+        seller:           null,
+        source:           'pelando',
+      });
+    } catch {}
+  });
 
   return results;
 }
 
 async function scrapePelandoHot(affiliateTag, minDiscount = 15) {
   console.log('[Pelando] Buscando promoções quentes...');
+
+  // Tenta GraphQL primeiro
   try {
-    const results = await fetchPelando(
-      QUERY_HOT,
-      { page: 1, size: 50 },
-      affiliateTag,
-      minDiscount
-    );
-    console.log(`[Pelando] ${results.length} promos quentes encontradas`);
+    const results = await fetchViaGraphQL('HOT', affiliateTag, minDiscount);
     if (results.length > 0) {
-      const ex = results[0];
-      console.log(`[Pelando] Ex: "${ex.title.substring(0, 45)}" | R$${ex.sale_price} (era R$${ex.original_price}) | -${ex.discount_percent}%`);
+      console.log(`[Pelando] GraphQL: ${results.length} promos`);
+      if (results[0]) {
+        const ex = results[0];
+        console.log(`[Pelando] Ex: "${ex.title.substring(0,45)}" | R$${ex.sale_price} | -${ex.discount_percent}%`);
+      }
+      return results;
     }
+  } catch (err) {
+    console.log('[Pelando] GraphQL falhou:', err.message, '— tentando HTML...');
+  }
+
+  // Fallback HTML
+  try {
+    const results = await fetchViaHtml(affiliateTag, minDiscount);
+    console.log(`[Pelando] HTML: ${results.length} promos`);
     return results;
   } catch (err) {
-    console.error('[Pelando] Erro hot:', err.response?.data || err.message);
+    console.error('[Pelando] HTML também falhou:', err.message);
     return [];
   }
 }
@@ -182,16 +201,11 @@ async function scrapePelandoHot(affiliateTag, minDiscount = 15) {
 async function scrapePelandoRecent(affiliateTag, minDiscount = 15) {
   console.log('[Pelando] Buscando promoções recentes...');
   try {
-    const results = await fetchPelando(
-      QUERY_RECENT,
-      { page: 1, size: 50 },
-      affiliateTag,
-      minDiscount
-    );
-    console.log(`[Pelando] ${results.length} promos recentes encontradas`);
+    const results = await fetchViaGraphQL('RECENT', affiliateTag, minDiscount);
+    console.log(`[Pelando] Recentes: ${results.length} promos`);
     return results;
   } catch (err) {
-    console.error('[Pelando] Erro recentes:', err.response?.data || err.message);
+    console.error('[Pelando] Erro recentes:', err.message);
     return [];
   }
 }
