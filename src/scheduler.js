@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { scrapeOffersOfDay, scrapeByKeyword, scrapeByCategory } = require('./scraper/mlScraper');
 const { scrapeShopeeOffers, scrapeShopeeKeyword } = require('./scraper/shopeeScraper');
+const { scrapePelandoHot, scrapePelandoRecent } = require('./scraper/pelandoScraper');
 const { savePromotion, getPendingPromotions, markAsPosted, updateSourceRun, isSourceActive } = require('./db/database');
 const { sendPromotion } = require('./bot/telegram');
 
@@ -85,6 +86,29 @@ async function runScrapeAndPost() {
       } catch {}
     }
     updateSourceRun('shopee_kw', 0);
+  }
+
+  // ── Pelando ────────────────────────────────────────────────
+  if (isSourceActive('pelando_hot')) {
+    try {
+      const tag = cfg.mlAffiliateTag;
+      const r = await scrapePelandoHot(tag, cfg.minDiscount);
+      console.log(`[Scheduler] Pelando Hot: ${r.length}`);
+      allPromos.push(...r);
+      updateSourceRun('pelando_hot', r.length);
+    } catch (err) { console.error('[Scheduler] Pelando Hot erro:', err.message); }
+    await delay(1500);
+  }
+
+  if (isSourceActive('pelando_recent')) {
+    try {
+      const tag = cfg.mlAffiliateTag;
+      const r = await scrapePelandoRecent(tag, cfg.minDiscount);
+      console.log(`[Scheduler] Pelando Recentes: ${r.length}`);
+      allPromos.push(...r);
+      updateSourceRun('pelando_recent', r.length);
+    } catch (err) { console.error('[Scheduler] Pelando Recentes erro:', err.message); }
+    await delay(1500);
   }
 
   // ── Salva e posta ──────────────────────────────────────

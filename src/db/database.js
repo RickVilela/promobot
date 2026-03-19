@@ -81,6 +81,8 @@ function initSchema() {
     { id: 'ml_category', name: 'Mercado Livre — Categorias',       active: 1, config: '{}' },
     { id: 'shopee',      name: 'Shopee — Ofertas do dia',          active: 0, config: '{}' },
     { id: 'shopee_kw',   name: 'Shopee — Palavras-chave',          active: 0, config: '{}' },
+    { id: 'pelando_hot',  name: 'Pelando — Promoções quentes',       active: 1, config: '{}' },
+    { id: 'pelando_recent', name: 'Pelando — Promoções recentes',    active: 0, config: '{}' },
   ];
   const stmt = db.prepare(`INSERT OR IGNORE INTO sources (id, name, active, config) VALUES (@id, @name, @active, @config)`);
   defaults.forEach(s => stmt.run(s));
