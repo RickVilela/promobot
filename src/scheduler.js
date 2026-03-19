@@ -1,7 +1,7 @@
 const cron = require('node-cron');
-const { scrapeOffersOfDay, scrapeByKeyword, scrapeByCategory } = require('../scraper/mlScraper');
-const { savePromotion, getPendingPromotions, markAsPosted } = require('../db/database');
-const { sendPromotion } = require('../bot/telegram');
+const { scrapeOffersOfDay, scrapeByKeyword, scrapeByCategory } = require('./scraper/mlScraper');
+const { savePromotion, getPendingPromotions, markAsPosted } = require('./db/database');
+const { sendPromotion } = require('./bot/telegram');
 
 let isRunning = false;
 let lastRunAt = null;

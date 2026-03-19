@@ -17,48 +17,50 @@ function getBot() {
 }
 
 function formatPrice(value) {
-  if (!value) return '–';
-  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (!value) return '-';
+  return 'R$ ' + value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function escapeHtml(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function buildMessage(promo) {
   const discount = promo.discount_percent;
   const hasDiscount = discount && discount > 0;
 
-  // Emojis por desconto
   let fire = '🔥';
   if (discount >= 50) fire = '🚨🔥';
   else if (discount >= 30) fire = '💥';
 
   let msg = '';
 
-  // Título
-  msg += `${fire} *${escapeMarkdown(promo.title)}*\n\n`;
+  // Título em negrito
+  msg += fire + ' <b>' + escapeHtml(promo.title) + '</b>\n\n';
 
-  // Preços
+  // Preço original riscado
   if (hasDiscount && promo.original_price) {
-    msg += `~~${formatPrice(promo.original_price)}~~ → `;
+    msg += '<s>' + escapeHtml(formatPrice(promo.original_price)) + '</s>  ➡️  ';
   }
-  msg += `*${formatPrice(promo.sale_price)}*`;
 
+  // Preço promocional em negrito
+  msg += '<b>' + escapeHtml(formatPrice(promo.sale_price)) + '</b>';
+
+  // Badge de desconto
   if (hasDiscount) {
-    msg += ` \\(\\-${discount}%\\)`;
+    msg += '  <b>(-' + discount + '% OFF)</b>';
   }
 
   msg += '\n\n';
-
-  // Link de afiliado
-  msg += `🛒 [Comprar no Mercado Livre](${promo.affiliate_url})\n\n`;
-
-  // Rodapé
-  msg += `_Promoção por tempo limitado\\. Clique rápido\\!_`;
+  msg += '┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n';
+  msg += '🛒 <a href="' + escapeHtml(promo.affiliate_url) + '">Comprar no Mercado Livre</a>\n\n';
+  msg += '<i>⏳ Promoção por tempo limitado. Corra!</i>';
 
   return msg;
-}
-
-function escapeMarkdown(text) {
-  return (text || '')
-    .replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
 }
 
 async function sendPromotion(promo) {
@@ -74,14 +76,13 @@ async function sendPromotion(promo) {
   const results = [];
 
   for (const channel of channels) {
-    // Verifica filtro de categoria do canal
     if (channel.category_filter) {
       const filters = channel.category_filter.split(',').map(f => f.trim().toLowerCase());
       const promoCategory = (promo.category || '').toLowerCase();
       const promoTitle = (promo.title || '').toLowerCase();
       const matches = filters.some(f => promoCategory.includes(f) || promoTitle.includes(f));
       if (!matches) {
-        console.log(`[Bot] Canal "${channel.name}" ignorou "${promo.title.substring(0, 40)}" (filtro)`);
+        console.log('[Bot] Canal "' + channel.name + '" ignorou "' + promo.title.substring(0, 40) + '" (filtro)');
         continue;
       }
     }
@@ -90,22 +91,20 @@ async function sendPromotion(promo) {
       let sentMsg;
 
       if (promo.image_url) {
-        // Tenta enviar com imagem
         try {
           sentMsg = await telegramBot.sendPhoto(channel.telegram_id, promo.image_url, {
             caption: message,
-            parse_mode: 'MarkdownV2',
+            parse_mode: 'HTML',
           });
         } catch {
-          // Fallback: envia só texto se a imagem falhar
           sentMsg = await telegramBot.sendMessage(channel.telegram_id, message, {
-            parse_mode: 'MarkdownV2',
+            parse_mode: 'HTML',
             disable_web_page_preview: false,
           });
         }
       } else {
         sentMsg = await telegramBot.sendMessage(channel.telegram_id, message, {
-          parse_mode: 'MarkdownV2',
+          parse_mode: 'HTML',
           disable_web_page_preview: false,
         });
       }
@@ -116,14 +115,13 @@ async function sendPromotion(promo) {
         telegram_message_id: String(sentMsg.message_id),
       });
 
-      console.log(`[Bot] ✓ Postado em "${channel.name}": ${promo.title.substring(0, 50)}`);
+      console.log('[Bot] Postado em "' + channel.name + '": ' + promo.title.substring(0, 50));
       results.push({ channel: channel.name, success: true });
 
-      // Delay entre canais para evitar rate limit
       await new Promise(r => setTimeout(r, 1000));
 
     } catch (err) {
-      console.error(`[Bot] Erro ao postar em "${channel.name}":`, err.message);
+      console.error('[Bot] Erro ao postar em "' + channel.name + '":', err.message);
       results.push({ channel: channel.name, success: false, error: err.message });
     }
   }
