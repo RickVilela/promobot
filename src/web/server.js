@@ -3,7 +3,8 @@ const path = require('path');
 const axios = require('axios');
 const {
   getHistory, getStats, getChannels, saveChannel,
-  toggleChannel, markAsIgnored, getPendingPromotions
+  toggleChannel, markAsIgnored, getPendingPromotions,
+  getSources, toggleSource,
 } = require('../db/database');
 const { runScrapeAndPost, getStatus } = require('../scheduler');
 const { sendPromotion, testConnection, buildMessage } = require('../bot/telegram');
@@ -185,6 +186,16 @@ app.post('/api/scrape', async (req, res) => {
   runScrapeAndPost(); // não await — responde imediatamente
 });
 
+// Fontes
+app.get('/api/sources', (req, res) => {
+  res.json(getSources());
+});
+
+app.patch('/api/sources/:id/toggle', (req, res) => {
+  toggleSource(req.params.id);
+  res.json({ ok: true });
+});
+
 // Testar conexão Telegram
 app.get('/api/telegram/test', async (req, res) => {
   const result = await testConnection();
@@ -356,6 +367,16 @@ const HTML_DASHBOARD = `<!DOCTYPE html>
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+  .sources-grid { display:flex;flex-direction:column;gap:10px; }
+  .source-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;transition:border-color 0.15s; }
+  .source-card.active { border-color:#1D9E7540; }
+  .source-head { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px; }
+  .source-name { font-size:13px;font-weight:500;color:var(--text); }
+  .source-desc { font-size:11px;color:var(--muted);margin-top:2px; }
+  .source-footer { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+  .source-cred { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+  .source-cred code { font-family:var(--mono);font-size:11px;background:var(--surface2);padding:2px 7px;border-radius:5px;color:var(--accent); }
+  .badge-info { background:var(--info-dim);color:var(--info); }
   @media (max-width: 900px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
     .channels-grid { grid-template-columns: 1fr 1fr; }
@@ -379,6 +400,7 @@ const HTML_DASHBOARD = `<!DOCTYPE html>
       <div class="nav-item" onclick="navigate('pending', this)"><span class="nav-icon">◷</span> Pendentes <span id="pending-count" style="margin-left:auto;font-size:10px;"></span></div>
       <div class="nav-item" onclick="navigate('history', this)"><span class="nav-icon">◎</span> Histórico</div>
       <div class="nav-item" onclick="navigate('channels', this)"><span class="nav-icon">◉</span> Canais</div>
+      <div class="nav-item" onclick="navigate('sources', this)"><span class="nav-icon">◍</span> Fontes</div>
       <div class="nav-label">Sistema</div>
       <div class="nav-item" onclick="navigate('settings', this)"><span class="nav-icon">◐</span> Configuração</div>
     </div>
@@ -457,6 +479,7 @@ async function render(page) {
   else if (page === 'pending') await renderPending();
   else if (page === 'history') await renderHistory();
   else if (page === 'channels') await renderChannels();
+  else if (page === 'sources') await renderSources();
   else if (page === 'settings') renderSettings();
 }
 
@@ -612,6 +635,81 @@ async function toggleCh(id) {
   await fetch(\`/api/channels/\${id}/toggle\`, { method: 'PATCH' });
   renderChannels();
   toast('Canal atualizado', 'success');
+}
+
+// ─── SOURCES ──────────────────────────────────────────────────
+async function renderSources() {
+  const data = await fetch('/api/sources').then(r => r.json());
+
+  const sourceInfo = {
+    ml_offers:   { icon: '🛒', label: 'Mercado Livre', desc: 'Scraping da página de ofertas do dia', cred: 'ML_AFFILIATE_TAG', link: null },
+    ml_keyword:  { icon: '🔍', label: 'ML por palavras-chave', desc: 'Busca por smartphone, notebook, tv...', cred: 'SEARCH_KEYWORDS', link: null },
+    ml_category: { icon: '📦', label: 'ML por categorias', desc: 'Eletrônicos, informática, eletrodomésticos', cred: 'ML_CATEGORIES', link: null },
+    shopee:      { icon: '🧡', label: 'Shopee — Ofertas do dia', desc: 'API oficial de afiliados Shopee', cred: 'SHOPEE_APP_ID + SHOPEE_SECRET', link: 'https://affiliate.shopee.com.br' },
+    shopee_kw:   { icon: '🔎', label: 'Shopee — Palavras-chave', desc: 'Busca por keyword na API Shopee', cred: 'SHOPEE_APP_ID + SHOPEE_SECRET', link: 'https://affiliate.shopee.com.br' },
+  };
+
+  const cards = data.map(s => {
+    const info = sourceInfo[s.id] || { icon: '◉', label: s.name, desc: '', cred: '' };
+    const lastRun = s.last_run ? timeAgo(s.last_run) : 'nunca';
+    const needsSetup = (s.id.startsWith('shopee') && (!window._shopeeOk));
+    return \`
+      <div class="source-card \${s.active ? 'active' : ''}">
+        <div class="source-head">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:22px">\${info.icon}</span>
+            <div>
+              <div class="source-name">\${info.label}</div>
+              <div class="source-desc">\${info.desc}</div>
+            </div>
+          </div>
+          <div class="toggle \${s.active ? 'on' : ''}" onclick="toggleSrc('\${s.id}', this)"></div>
+        </div>
+        <div class="source-footer">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <span class="badge \${s.active ? 'badge-green' : 'badge-gray'}">\${s.active ? 'ativo' : 'inativo'}</span>
+            \${s.last_count > 0 ? \`<span class="badge badge-info">\${s.last_count} últimas promos</span>\` : ''}
+            <span style="font-size:11px;color:var(--muted)">última busca: \${lastRun}</span>
+          </div>
+          \${info.link ? \`<a href="\${info.link}" target="_blank" style="font-size:11px;color:var(--info)">Cadastrar →</a>\` : ''}
+        </div>
+        \${needsSetup || s.id.startsWith('shopee') ? \`
+          <div class="source-cred">
+            <span style="font-size:11px;color:var(--muted)">Variáveis necessárias:</span>
+            <code>\${info.cred}</code>
+            \${s.id === 'shopee' || s.id === 'shopee_kw' ? '<span style="font-size:11px;color:var(--warn)">⚠ Configure no Railway para ativar</span>' : ''}
+          </div>
+        \` : ''}
+      </div>
+    \`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = \`
+    <div class="section-header">
+      <div class="section-title">Fontes de promoção</div>
+      <button class="btn" style="font-size:12px;padding:4px 10px;" onclick="forceScrape(this)">↻ Buscar agora</button>
+    </div>
+    <div class="sources-grid">\${cards}</div>
+    <div style="margin-top:16px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--muted);line-height:2">
+      <div style="font-weight:600;color:var(--text);margin-bottom:6px">Como adicionar a Shopee</div>
+      <div>1. Cadastre-se em <a href="https://affiliate.shopee.com.br" target="_blank" style="color:var(--info)">affiliate.shopee.com.br</a> e aguarde aprovação</div>
+      <div>2. No painel de afiliados, copie o <strong style="color:var(--text)">App ID</strong> e o <strong style="color:var(--text)">Secret Key</strong></div>
+      <div>3. No Railway, adicione as variáveis: <code style="color:var(--accent)">SHOPEE_APP_ID</code> e <code style="color:var(--accent)">SHOPEE_SECRET</code></div>
+      <div>4. Ative a fonte Shopee aqui no painel — o bot já começa a buscar automaticamente</div>
+    </div>
+  \`;
+}
+
+async function toggleSrc(id, toggleEl) {
+  await fetch(\`/api/sources/\${id}/toggle\`, { method: 'PATCH' });
+  toggleEl.classList.toggle('on');
+  const card = toggleEl.closest('.source-card');
+  card.classList.toggle('active');
+  const badge = card.querySelector('.badge');
+  const isOn = toggleEl.classList.contains('on');
+  badge.className = 'badge ' + (isOn ? 'badge-green' : 'badge-gray');
+  badge.textContent = isOn ? 'ativo' : 'inativo';
+  toast(isOn ? 'Fonte ativada' : 'Fonte desativada', 'success');
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────

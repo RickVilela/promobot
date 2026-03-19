@@ -183,9 +183,22 @@ async function scrapeUrl(url, affiliateTag, minDiscount) {
       const results = [];
       for (const item of jsonItems) {
         try {
-          const salePrice     = item.price;
-          const originalPrice = item.original_price || null;
-          if (!salePrice) continue;
+          if (!item.price) continue;
+
+          // ML às vezes retorna sale em centavos (359990) e original em reais (3599)
+          // Detecta pela razão entre os dois valores
+          let salePrice     = item.price;
+          let originalPrice = item.original_price || null;
+
+          if (originalPrice && salePrice > originalPrice * 10) {
+            salePrice = Math.round(salePrice / 100 * 100) / 100;
+          } else if (!originalPrice && salePrice > 100000) {
+            salePrice = Math.round(salePrice / 100 * 100) / 100;
+          }
+
+          if (originalPrice && originalPrice > 100000) {
+            originalPrice = Math.round(originalPrice / 100 * 100) / 100;
+          }
 
           let discountPercent = null;
           if (originalPrice && originalPrice > salePrice) {
