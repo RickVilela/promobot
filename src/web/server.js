@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const axios = require('axios');
 const {
   getHistory, getStats, getChannels, saveChannel,
   toggleChannel, markAsIgnored, getPendingPromotions
@@ -11,6 +12,109 @@ const { markAsPosted } = require('../db/database');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../../public')));
+
+// ─── ML OAUTH CALLBACK ─────────────────────────────────────────
+
+// Passo 1: redireciona para login do ML
+app.get('/ml/auth', (req, res) => {
+  const appId = process.env.ML_APP_ID;
+  if (!appId) return res.status(400).send('ML_APP_ID não configurado no .env');
+  const redirectUri = process.env.APP_URL + '/ml/callback';
+  const url = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  res.redirect(url);
+});
+
+// Passo 2: ML redireciona aqui com o code, troca pelo token automaticamente
+app.get('/ml/callback', async (req, res) => {
+  const { code, error } = req.query;
+
+  if (error) {
+    return res.send(`<h2>Erro: ${error}</h2><p>Tente novamente em <a href="/ml/auth">/ml/auth</a></p>`);
+  }
+
+  if (!code) {
+    return res.send('<h2>Código não recebido.</h2>');
+  }
+
+  try {
+    const appId     = process.env.ML_APP_ID;
+    const appSecret = process.env.ML_APP_SECRET;
+    const redirectUri = process.env.APP_URL + '/ml/callback';
+
+    const response = await axios.post('https://api.mercadolibre.com/oauth/token', {
+      grant_type:    'authorization_code',
+      client_id:     appId,
+      client_secret: appSecret,
+      code:          code,
+      redirect_uri:  redirectUri,
+    });
+
+    const { access_token, refresh_token, expires_in } = response.data;
+
+    // Salva nos env em runtime (Railway vai usar as vars do painel)
+    process.env.ML_ACCESS_TOKEN  = access_token;
+    process.env.ML_REFRESH_TOKEN = refresh_token;
+
+    console.log('[ML Auth] Token obtido com sucesso! Expira em', expires_in, 'segundos');
+
+    // Agenda renovação automática 5 min antes de expirar
+    scheduleTokenRefresh(expires_in);
+
+    res.send(`
+      <html><body style="font-family:sans-serif;max-width:500px;margin:60px auto;padding:20px">
+        <h2 style="color:#1D9E75">✓ Token obtido com sucesso!</h2>
+        <p>O bot já está autenticado e vai buscar promoções automaticamente.</p>
+        <p style="font-size:12px;color:#888">Expira em ${Math.round(expires_in/3600)}h — renovação automática ativa.</p>
+        <p><a href="/">← Voltar ao painel</a></p>
+      </body></html>
+    `);
+
+  } catch (err) {
+    console.error('[ML Auth] Erro ao trocar código por token:', err.response?.data || err.message);
+    res.send(`
+      <html><body style="font-family:sans-serif;max-width:500px;margin:60px auto;padding:20px">
+        <h2 style="color:#E24B4A">✗ Erro ao obter token</h2>
+        <pre style="background:#f5f5f5;padding:12px;border-radius:8px;font-size:12px">${JSON.stringify(err.response?.data || err.message, null, 2)}</pre>
+        <p><a href="/ml/auth">Tentar novamente</a></p>
+      </body></html>
+    `);
+  }
+});
+
+// Renovação automática do token
+function scheduleTokenRefresh(expiresInSeconds) {
+  const refreshIn = Math.max((expiresInSeconds - 300), 60) * 1000; // 5 min antes
+  console.log(`[ML Auth] Renovação do token agendada em ${Math.round(refreshIn/60000)} min`);
+
+  setTimeout(async () => {
+    try {
+      const response = await axios.post('https://api.mercadolibre.com/oauth/token', {
+        grant_type:    'refresh_token',
+        client_id:     process.env.ML_APP_ID,
+        client_secret: process.env.ML_APP_SECRET,
+        refresh_token: process.env.ML_REFRESH_TOKEN,
+      });
+
+      process.env.ML_ACCESS_TOKEN  = response.data.access_token;
+      process.env.ML_REFRESH_TOKEN = response.data.refresh_token;
+      console.log('[ML Auth] Token renovado automaticamente!');
+      scheduleTokenRefresh(response.data.expires_in);
+
+    } catch (err) {
+      console.error('[ML Auth] Erro ao renovar token:', err.response?.data || err.message);
+      console.error('[ML Auth] Acesse /ml/auth para autenticar novamente.');
+    }
+  }, refreshIn);
+}
+
+// Status do token ML
+app.get('/api/ml/status', (req, res) => {
+  const token = process.env.ML_ACCESS_TOKEN;
+  res.json({
+    configured: !!token && token !== 'seu_token_aqui',
+    token_preview: token ? token.substring(0, 20) + '...' : null,
+  });
+});
 
 // ─── API ROUTES ────────────────────────────────────────────────
 

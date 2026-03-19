@@ -1,11 +1,5 @@
 const axios = require('axios');
 
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
-  'Accept-Language': 'pt-BR,pt;q=0.9',
-};
-
 const ML_CATEGORIES = {
   eletronicos:      'MLB1000',
   informatica:      'MLB1648',
@@ -16,6 +10,18 @@ const ML_CATEGORIES = {
   celulares:        'MLB1051',
   games:            'MLB1144',
 };
+
+function getHeaders() {
+  const token = process.env.ML_ACCESS_TOKEN;
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json',
+  };
+  if (token && token !== 'seu_token_aqui') {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  return headers;
+}
 
 function buildAffiliateUrl(originalUrl, affiliateTag) {
   try {
@@ -43,10 +49,8 @@ function processItem(item, affiliateTag, minDiscount) {
       discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
     }
 
-    // Só filtra se tiver desconto calculado e for menor que o mínimo
     if (discountPercent !== null && discountPercent < minDiscount) return null;
 
-    // Melhora qualidade da imagem
     const imageUrl = item.thumbnail
       ? item.thumbnail.replace('-I.jpg', '-O.jpg').replace('-O.webp', '-O.jpg')
       : null;
@@ -68,15 +72,14 @@ function processItem(item, affiliateTag, minDiscount) {
   }
 }
 
-// Endpoint público que não precisa de autenticação
-async function fetchPublic(params, affiliateTag, minDiscount) {
+async function fetchML(params, affiliateTag, minDiscount) {
   const qs = new URLSearchParams(params).toString();
   const url = `https://api.mercadolibre.com/sites/MLB/search?${qs}`;
   console.log('[Scraper] GET', url);
 
-  const resp = await axios.get(url, { headers: HEADERS, timeout: 15000 });
+  const resp = await axios.get(url, { headers: getHeaders(), timeout: 15000 });
   const items = resp.data.results || [];
-  console.log(`[Scraper] ${items.length} itens recebidos`);
+  console.log(`[Scraper] ${items.length} itens — com token: ${!!process.env.ML_ACCESS_TOKEN}`);
 
   const results = [];
   for (const item of items) {
@@ -87,54 +90,29 @@ async function fetchPublic(params, affiliateTag, minDiscount) {
 }
 
 async function scrapeOffersOfDay(affiliateTag, minDiscount = 15) {
-  const results = [];
+  const all = [];
   console.log('[Scraper] Buscando ofertas do dia...');
 
-  // Busca 1: mais vendidos com desconto, sem tag restrita
-  try {
-    const r = await fetchPublic({
-      sort: 'relevance',
-      limit: 50,
-      condition: 'new',
-    }, affiliateTag, minDiscount);
-    results.push(...r);
-  } catch (err) {
-    console.error('[Scraper] Busca 1 falhou:', err.message);
+  const searches = [
+    { category: 'MLB1000', sort: 'relevance', limit: 50, condition: 'new' }, // eletrônicos
+    { category: 'MLB1648', sort: 'relevance', limit: 50, condition: 'new' }, // informática
+    { category: 'MLB1574', sort: 'relevance', limit: 50, condition: 'new' }, // eletrodomésticos
+    { category: 'MLB1051', sort: 'relevance', limit: 50, condition: 'new' }, // celulares
+  ];
+
+  for (const params of searches) {
+    try {
+      const r = await fetchML(params, affiliateTag, minDiscount);
+      all.push(...r);
+      await delay(1500);
+    } catch (err) {
+      console.error('[Scraper] Erro:', err.message);
+    }
   }
 
-  await delay(1500);
-
-  // Busca 2: por categoria eletrônicos (mais promoções)
-  try {
-    const r = await fetchPublic({
-      category: 'MLB1000',
-      sort: 'relevance',
-      limit: 50,
-      condition: 'new',
-    }, affiliateTag, minDiscount);
-    results.push(...r);
-  } catch (err) {
-    console.error('[Scraper] Busca 2 falhou:', err.message);
-  }
-
-  await delay(1500);
-
-  // Busca 3: eletrodomésticos
-  try {
-    const r = await fetchPublic({
-      category: 'MLB1574',
-      sort: 'relevance',
-      limit: 50,
-      condition: 'new',
-    }, affiliateTag, minDiscount);
-    results.push(...r);
-  } catch (err) {
-    console.error('[Scraper] Busca 3 falhou:', err.message);
-  }
-
-  // Remove duplicatas por ml_id
+  // Remove duplicatas
   const seen = new Set();
-  return results.filter(r => {
+  return all.filter(r => {
     if (seen.has(r.ml_id)) return false;
     seen.add(r.ml_id);
     return true;
@@ -142,14 +120,9 @@ async function scrapeOffersOfDay(affiliateTag, minDiscount = 15) {
 }
 
 async function scrapeByKeyword(keyword, affiliateTag, minDiscount = 15) {
-  console.log(`[Scraper] Buscando: "${keyword}"`);
+  console.log(`[Scraper] Keyword: "${keyword}"`);
   try {
-    return await fetchPublic({
-      q: keyword,
-      sort: 'relevance',
-      limit: 30,
-      condition: 'new',
-    }, affiliateTag, minDiscount);
+    return await fetchML({ q: keyword, sort: 'relevance', limit: 30, condition: 'new' }, affiliateTag, minDiscount);
   } catch (err) {
     console.error(`[Scraper] Erro keyword "${keyword}":`, err.message);
     return [];
@@ -159,14 +132,9 @@ async function scrapeByKeyword(keyword, affiliateTag, minDiscount = 15) {
 async function scrapeByCategory(categoryKey, affiliateTag, minDiscount = 15) {
   const categoryId = ML_CATEGORIES[categoryKey];
   if (!categoryId) return [];
-  console.log(`[Scraper] Buscando categoria: ${categoryKey}`);
+  console.log(`[Scraper] Categoria: ${categoryKey}`);
   try {
-    return await fetchPublic({
-      category: categoryId,
-      sort: 'relevance',
-      limit: 30,
-      condition: 'new',
-    }, affiliateTag, minDiscount);
+    return await fetchML({ category: categoryId, sort: 'relevance', limit: 30, condition: 'new' }, affiliateTag, minDiscount);
   } catch (err) {
     console.error(`[Scraper] Erro categoria "${categoryKey}":`, err.message);
     return [];
