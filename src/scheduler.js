@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { scrapeOffersOfDay, scrapeByKeyword, scrapeByCategory } = require('./scraper/mlScraper');
 const { scrapeShopeeOffers, scrapeShopeeKeyword } = require('./scraper/shopeeScraper');
 const { scrapePelandoHot, scrapePelandoRecent } = require('./scraper/pelandoScraper');
+const { scrapeRakutenOffers } = require('./scraper/rakutenScraper');
 const { savePromotion, getPendingPromotions, markAsPosted, updateSourceRun, isSourceActive } = require('./db/database');
 const { sendPromotion } = require('./bot/telegram');
 

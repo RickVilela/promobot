@@ -646,6 +646,7 @@ async function renderSources() {
     ml_keyword:  { icon: '🔍', label: 'ML por palavras-chave', desc: 'Busca por smartphone, notebook, tv...', cred: 'SEARCH_KEYWORDS', link: null },
     ml_category: { icon: '📦', label: 'ML por categorias', desc: 'Eletrônicos, informática, eletrodomésticos', cred: 'ML_CATEGORIES', link: null },
     shopee:      { icon: '🧡', label: 'Shopee — Ofertas do dia', desc: 'API oficial de afiliados Shopee', cred: 'SHOPEE_APP_ID + SHOPEE_SECRET', link: 'https://affiliate.shopee.com.br' },
+    rakuten:        { icon: '🏪', label: 'Rakuten — Coupon Feed', desc: 'Americanas, Netshoes, Centauro e +50 lojas BR', cred: 'RAKUTEN_WS_TOKEN', link: 'https://publisher.rakutenadvertising.com' },
     pelando_hot:    { icon: '🔥', label: 'Pelando — Quentes', desc: 'Promoções mais votadas da comunidade', cred: 'sem configuração', link: null },
     pelando_recent: { icon: '🆕', label: 'Pelando — Recentes', desc: 'Promoções postadas recentemente', cred: 'sem configuração', link: null },
     shopee_kw:   { icon: '🔎', label: 'Shopee — Palavras-chave', desc: 'Busca por keyword na API Shopee', cred: 'SHOPEE_APP_ID + SHOPEE_SECRET', link: 'https://affiliate.shopee.com.br' },
