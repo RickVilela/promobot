@@ -11,18 +11,6 @@ const ML_CATEGORIES = {
   games:            'MLB1144',
 };
 
-function getHeaders() {
-  const token = process.env.ML_ACCESS_TOKEN;
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json',
-  };
-  if (token && token !== 'seu_token_aqui') {
-    headers['Authorization'] = 'Bearer ' + token;
-  }
-  return headers;
-}
-
 function buildAffiliateUrl(originalUrl, affiliateTag) {
   try {
     const url = new URL(originalUrl);
@@ -73,13 +61,34 @@ function processItem(item, affiliateTag, minDiscount) {
 }
 
 async function fetchML(params, affiliateTag, minDiscount) {
+  const token = process.env.ML_ACCESS_TOKEN;
+
+  // Token vai como query param E como header — ML aceita das duas formas
+  if (token && token !== 'seu_token_aqui') {
+    params.access_token = token;
+  }
+
   const qs = new URLSearchParams(params).toString();
   const url = `https://api.mercadolibre.com/sites/MLB/search?${qs}`;
-  console.log('[Scraper] GET', url);
+  console.log('[Scraper] GET', url.replace(token, 'TOKEN'));
 
-  const resp = await axios.get(url, { headers: getHeaders(), timeout: 15000 });
+  const resp = await axios.get(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Accept': 'application/json',
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {}),
+    },
+    timeout: 15000,
+  });
+
   const items = resp.data.results || [];
-  console.log(`[Scraper] ${items.length} itens — com token: ${!!process.env.ML_ACCESS_TOKEN}`);
+  console.log(`[Scraper] ${items.length} itens recebidos`);
+
+  // Log do primeiro item para debug de original_price
+  if (items.length > 0) {
+    const first = items[0];
+    console.log(`[Scraper] Exemplo: "${first.title?.substring(0,40)}" | price: ${first.price} | original_price: ${first.original_price}`);
+  }
 
   const results = [];
   for (const item of items) {
@@ -94,10 +103,10 @@ async function scrapeOffersOfDay(affiliateTag, minDiscount = 15) {
   console.log('[Scraper] Buscando ofertas do dia...');
 
   const searches = [
-    { category: 'MLB1000', sort: 'relevance', limit: 50, condition: 'new' }, // eletrônicos
-    { category: 'MLB1648', sort: 'relevance', limit: 50, condition: 'new' }, // informática
-    { category: 'MLB1574', sort: 'relevance', limit: 50, condition: 'new' }, // eletrodomésticos
-    { category: 'MLB1051', sort: 'relevance', limit: 50, condition: 'new' }, // celulares
+    { category: 'MLB1000', sort: 'relevance', limit: 50, condition: 'new' },
+    { category: 'MLB1648', sort: 'relevance', limit: 50, condition: 'new' },
+    { category: 'MLB1574', sort: 'relevance', limit: 50, condition: 'new' },
+    { category: 'MLB1051', sort: 'relevance', limit: 50, condition: 'new' },
   ];
 
   for (const params of searches) {
@@ -106,11 +115,10 @@ async function scrapeOffersOfDay(affiliateTag, minDiscount = 15) {
       all.push(...r);
       await delay(1500);
     } catch (err) {
-      console.error('[Scraper] Erro:', err.message);
+      console.error('[Scraper] Erro:', err.response?.data?.message || err.message);
     }
   }
 
-  // Remove duplicatas
   const seen = new Set();
   return all.filter(r => {
     if (seen.has(r.ml_id)) return false;
@@ -124,7 +132,7 @@ async function scrapeByKeyword(keyword, affiliateTag, minDiscount = 15) {
   try {
     return await fetchML({ q: keyword, sort: 'relevance', limit: 30, condition: 'new' }, affiliateTag, minDiscount);
   } catch (err) {
-    console.error(`[Scraper] Erro keyword "${keyword}":`, err.message);
+    console.error(`[Scraper] Erro keyword "${keyword}":`, err.response?.data?.message || err.message);
     return [];
   }
 }
@@ -136,7 +144,7 @@ async function scrapeByCategory(categoryKey, affiliateTag, minDiscount = 15) {
   try {
     return await fetchML({ category: categoryId, sort: 'relevance', limit: 30, condition: 'new' }, affiliateTag, minDiscount);
   } catch (err) {
-    console.error(`[Scraper] Erro categoria "${categoryKey}":`, err.message);
+    console.error(`[Scraper] Erro categoria "${categoryKey}":`, err.response?.data?.message || err.message);
     return [];
   }
 }
