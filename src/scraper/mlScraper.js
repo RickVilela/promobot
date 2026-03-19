@@ -1,5 +1,11 @@
 const axios = require('axios');
-const cheerio = require('cheerio');
+
+// ─── Documentação oficial usada ────────────────────────────────
+// Search:     GET /sites/MLB/search?q=...&access_token=TOKEN
+// Item price: GET /items/{id}/sale_price?context=channel_marketplace
+//             Retorna: { amount (preço atual), regular_amount (preço original se em promoção) }
+// Multi-item: GET /items?ids=MLB1,MLB2&attributes=id,title,thumbnail,permalink,original_price
+// Ref: https://developers.mercadolivre.com.br/pt_br/api-de-precos
 
 const ML_CATEGORIES = {
   eletronicos:      'MLB1000',
@@ -12,17 +18,13 @@ const ML_CATEGORIES = {
   games:            'MLB1144',
 };
 
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache',
-};
+function getToken() {
+  return process.env.ML_ACCESS_TOKEN || null;
+}
 
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms));
+function authHeaders() {
+  const token = getToken();
+  return token ? { 'Authorization': 'Bearer ' + token } : {};
 }
 
 function buildAffiliateUrl(url, tag) {
@@ -35,253 +37,236 @@ function buildAffiliateUrl(url, tag) {
   }
 }
 
-function parsePrice(text) {
-  if (!text) return null;
-  // Remove tudo que não é dígito e vírgula/ponto
-  const clean = text.replace(/[^\d.,]/g, '').trim();
-  if (!clean) return null;
-  // Formato BR: 1.299,90 → 1299.90
-  const normalized = clean.replace(/\./g, '').replace(',', '.');
-  const val = parseFloat(normalized);
-  return isNaN(val) || val <= 0 ? null : val;
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── Passo 1: busca IDs via /search ────────────────────────────
+async function searchIds(params) {
+  const token = getToken();
+  const qs = new URLSearchParams(params);
+  if (token) qs.set('access_token', token);
+
+  const url = `https://api.mercadolibre.com/sites/MLB/search?${qs}`;
+  console.log('[ML] Search:', url.replace(token || '', 'TOKEN'));
+
+  const resp = await axios.get(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', ...authHeaders() },
+    timeout: 15000,
+  });
+
+  return (resp.data.results || []).map(r => r.id).filter(Boolean);
 }
 
-function extractMlId(url) {
-  const m = url.match(/MLB-?(\d+)/i);
-  return m ? 'MLB' + m[1] : null;
+// ─── Passo 2: busca detalhes em lote via /items?ids= ───────────
+// Retorna title, thumbnail, permalink, original_price (campo legado, ainda disponível)
+async function fetchItemsBatch(ids) {
+  if (!ids.length) return [];
+  const token = getToken();
+
+  // Máximo 20 por chamada (limite ML)
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
+
+  const allItems = [];
+  for (const chunk of chunks) {
+    try {
+      const qs = new URLSearchParams({
+        ids: chunk.join(','),
+        attributes: 'id,title,thumbnail,permalink,price,original_price,currency_id',
+      });
+      if (token) qs.set('access_token', token);
+
+      const url = `https://api.mercadolibre.com/items?${qs}`;
+      const resp = await axios.get(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', ...authHeaders() },
+        timeout: 15000,
+      });
+
+      for (const entry of (resp.data || [])) {
+        if (entry.code === 200 && entry.body) allItems.push(entry.body);
+      }
+      await delay(300);
+    } catch (err) {
+      console.error('[ML] Erro batch /items:', err.message);
+    }
+  }
+  return allItems;
 }
 
-// Extrai JSON embutido na página do ML (fonte mais confiável)
-function extractJsonData($) {
-  const items = [];
-  try {
-    // O ML injeta os dados de busca num script JSON
-    $('script').each((_, el) => {
-      const text = $(el).html() || '';
-      if (!text.includes('"original_price"') && !text.includes('"price"')) return;
-      
-      // Tenta extrair array de resultados
-      const match = text.match(/"results"\s*:\s*(\[[\s\S]{100,}\])\s*,\s*"paging"/);
-      if (match) {
+// ─── Passo 3: busca preço real via /sale_price (API oficial) ───
+// É o endpoint correto segundo a documentação — retorna amount + regular_amount
+async function fetchSalePrices(ids) {
+  const token = getToken();
+  if (!token) return {}; // sale_price requer token
+
+  const priceMap = {};
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
+
+  for (const chunk of chunks) {
+    // ML suporta multi-get: /items/price?ids=MLB1,MLB2
+    try {
+      const url = `https://api.mercadolibre.com/items/prices?ids=${chunk.join(',')}&context=channel_marketplace`;
+      const resp = await axios.get(url, {
+        headers: { 'Accept': 'application/json', ...authHeaders() },
+        timeout: 15000,
+      });
+
+      for (const entry of (resp.data || [])) {
+        if (entry.code === 200 && entry.body) {
+          // body: { amount, regular_amount, currency_id }
+          priceMap[entry.id] = {
+            sale_price:     entry.body.amount,
+            original_price: entry.body.regular_amount || null,
+          };
+        }
+      }
+    } catch (err) {
+      // Fallback: tenta um a um se o batch falhar
+      for (const id of chunk) {
         try {
-          const results = JSON.parse(match[1]);
-          if (Array.isArray(results) && results.length > 0) {
-            items.push(...results);
-          }
+          const url = `https://api.mercadolibre.com/items/${id}/sale_price?context=channel_marketplace`;
+          const resp = await axios.get(url, {
+            headers: { 'Accept': 'application/json', ...authHeaders() },
+            timeout: 8000,
+          });
+          priceMap[id] = {
+            sale_price:     resp.data.amount,
+            original_price: resp.data.regular_amount || null,
+          };
+          await delay(100);
         } catch {}
       }
-    });
-  } catch {}
-  return items;
-}
-
-// Extrai produtos do HTML via cheerio (fallback)
-function extractFromHtml($, affiliateTag, minDiscount) {
-  const results = [];
-
-  // Seletores que o ML usa (podem variar por versão)
-  const cardSelectors = [
-    '.ui-search-result',
-    '.andes-card',
-    '[class*="poly-card"]',
-    '[data-item-id]',
-  ];
-
-  let cards = $([]);
-  for (const sel of cardSelectors) {
-    const found = $(sel);
-    if (found.length > 0) { cards = found; break; }
+    }
+    await delay(500);
   }
 
-  cards.each((_, el) => {
-    try {
-      const $el = $(el);
+  return priceMap;
+}
 
-      // Link e ID
-      const link = $el.find('a[href*="mercadolivre.com.br"]').first().attr('href')
-                || $el.find('a[href*="produto.mercadolivre"]').first().attr('href');
-      if (!link) return;
+// ─── Montagem final do objeto promoção ─────────────────────────
+function buildPromo(item, priceData, affiliateTag, minDiscount) {
+  const salePrice     = priceData?.sale_price     ?? item.price;
+  const originalPrice = priceData?.original_price ?? item.original_price ?? null;
 
-      const cleanUrl = link.split('#')[0].split('?')[0];
-      const mlId = extractMlId(cleanUrl);
-      if (!mlId) return;
+  if (!salePrice) return null;
 
-      // Título
-      const title = (
-        $el.find('.poly-component__title, .ui-search-item__title, [class*="title"]').first().text()
-        || $el.attr('title')
-        || ''
-      ).trim();
-      if (!title || title.length < 5) return;
+  let discountPercent = null;
+  if (originalPrice && originalPrice > salePrice) {
+    discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
+  }
 
-      // Preço de venda (valor atual)
-      const salePriceRaw =
-        $el.find('.andes-money-amount__fraction, .price-tag-fraction, [class*="price__fraction"]').first().text()
-        + ($el.find('.andes-money-amount__cents, [class*="price__cents"]').first().text() || '');
-      const salePrice = parsePrice(salePriceRaw);
-      if (!salePrice || salePrice < 10) return;
+  if (discountPercent !== null && discountPercent < minDiscount) return null;
 
-      // Preço original (riscado)
-      const originalPriceEl = $el.find(
-        's .andes-money-amount__fraction, ' +
-        '[class*="original"] .andes-money-amount__fraction, ' +
-        '.ui-search-price__original-value .andes-money-amount__fraction, ' +
-        '[class*="price--original"] .andes-money-amount__fraction, ' +
-        '.poly-price__original .andes-money-amount__fraction'
-      ).first();
-      const originalPrice = parsePrice(originalPriceEl.text());
+  // Melhora resolução da imagem (D = maior resolução)
+  const imageUrl = (item.thumbnail || '')
+    .replace('http://', 'https://')
+    .replace(/\/[A-Z]_NP_/g, '/D_NP_')
+    .replace(/-[A-Z]\.jpg/, '-O.jpg') || null;
 
-      // Desconto explícito no badge
-      const discountBadge = $el.find('[class*="discount"], [class*="pill--discount"], .poly-price__discount').first().text();
-      const discountMatch = discountBadge.match(/(\d+)\s*%/);
-      let discountPercent = discountMatch ? parseInt(discountMatch[1]) : null;
+  return {
+    ml_id:            item.id,
+    title:            (item.title || '').substring(0, 200),
+    original_price:   originalPrice,
+    sale_price:       salePrice,
+    discount_percent: discountPercent,
+    image_url:        imageUrl && imageUrl.startsWith('http') ? imageUrl : null,
+    original_url:     item.permalink,
+    affiliate_url:    buildAffiliateUrl(item.permalink, affiliateTag),
+    category:         item.category_id || 'geral',
+    seller:           item.seller?.nickname || null,
+    source:           'mercadolivre',
+  };
+}
 
-      // Calcula desconto se tiver preço original
-      if (!discountPercent && originalPrice && originalPrice > salePrice) {
-        discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
-      }
+// ─── Pipeline completo: search → items → sale_price ─────────────
+async function fetchWithPrices(searchParams, affiliateTag, minDiscount) {
+  // 1. Busca IDs
+  let ids;
+  try {
+    ids = await searchIds(searchParams);
+  } catch (err) {
+    console.error('[ML] Erro no search:', err.response?.data?.message || err.message);
+    return [];
+  }
 
-      // Filtra por desconto mínimo
-      if (discountPercent !== null && discountPercent < minDiscount) return;
+  if (!ids.length) { console.log('[ML] Nenhum ID retornado'); return []; }
+  console.log(`[ML] ${ids.length} IDs encontrados`);
 
-      // Imagem
-      const img = $el.find('img[src*="http"], img[data-src*="http"]').first();
-      const imageUrl = (img.attr('data-src') || img.attr('src') || '').replace('-I.jpg', '-O.jpg') || null;
+  // 2. Detalhes dos itens (título, imagem, permalink)
+  const items = await fetchItemsBatch(ids);
+  console.log(`[ML] ${items.length} itens com detalhes`);
 
-      results.push({
-        ml_id: mlId,
-        title: title.substring(0, 200),
-        original_price: originalPrice,
-        sale_price: salePrice,
-        discount_percent: discountPercent,
-        image_url: imageUrl && imageUrl.startsWith('http') ? imageUrl : null,
-        original_url: cleanUrl,
-        affiliate_url: buildAffiliateUrl(cleanUrl, affiliateTag),
-        category: 'geral',
-        seller: null,
-      });
-    } catch {}
-  });
+  // 3. Preços reais via sale_price (se tiver token)
+  const token = getToken();
+  let priceMap = {};
+  if (token) {
+    priceMap = await fetchSalePrices(ids);
+    console.log(`[ML] ${Object.keys(priceMap).length} preços obtidos via sale_price`);
+  } else {
+    console.log('[ML] Sem token — usando original_price do /items (campo legado)');
+  }
+
+  // 4. Monta os objetos finais
+  const results = [];
+  for (const item of items) {
+    const promo = buildPromo(item, priceMap[item.id], affiliateTag, minDiscount);
+    if (promo) results.push(promo);
+  }
+
+  if (results.length > 0) {
+    const ex = results[0];
+    console.log(`[ML] Ex: "${ex.title.substring(0,45)}" | sale: R$${ex.sale_price} | orig: R$${ex.original_price} | desc: ${ex.discount_percent}%`);
+  }
 
   return results;
 }
 
-async function scrapeUrl(url, affiliateTag, minDiscount) {
-  try {
-    const resp = await axios.get(url, {
-      headers: HEADERS,
-      timeout: 20000,
-      maxRedirects: 5,
-    });
-
-    const $ = cheerio.load(resp.data);
-
-    // Tenta extrair do JSON embutido primeiro (mais confiável para original_price)
-    const jsonItems = extractJsonData($);
-    if (jsonItems.length > 0) {
-      console.log(`[Scraper] JSON embutido: ${jsonItems.length} itens`);
-      const results = [];
-      for (const item of jsonItems) {
-        try {
-          if (!item.price) continue;
-
-          // ML às vezes retorna sale em centavos (359990) e original em reais (3599)
-          // Detecta pela razão entre os dois valores
-          let salePrice     = item.price;
-          let originalPrice = item.original_price || null;
-
-          if (originalPrice && salePrice > originalPrice * 10) {
-            salePrice = Math.round(salePrice / 100 * 100) / 100;
-          } else if (!originalPrice && salePrice > 100000) {
-            salePrice = Math.round(salePrice / 100 * 100) / 100;
-          }
-
-          if (originalPrice && originalPrice > 100000) {
-            originalPrice = Math.round(originalPrice / 100 * 100) / 100;
-          }
-
-          let discountPercent = null;
-          if (originalPrice && originalPrice > salePrice) {
-            discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
-          }
-          if (discountPercent !== null && discountPercent < minDiscount) continue;
-
-          const imageUrl = (item.thumbnail || '').replace('-I.jpg', '-O.jpg');
-
-          results.push({
-            ml_id:            item.id,
-            title:            (item.title || '').substring(0, 200),
-            original_price:   originalPrice,
-            sale_price:       salePrice,
-            discount_percent: discountPercent,
-            image_url:        imageUrl || null,
-            original_url:     item.permalink,
-            affiliate_url:    buildAffiliateUrl(item.permalink, affiliateTag),
-            category:         item.category_id || 'geral',
-            seller:           item.seller?.nickname || null,
-          });
-        } catch {}
-      }
-      if (results.length > 0) {
-        // Log do primeiro para debug
-        const ex = results[0];
-        console.log(`[Scraper] Ex: "${ex.title.substring(0,40)}" | sale: ${ex.sale_price} | orig: ${ex.original_price} | desc: ${ex.discount_percent}%`);
-        return results;
-      }
-    }
-
-    // Fallback: parse HTML
-    console.log('[Scraper] Usando parser HTML...');
-    const results = extractFromHtml($, affiliateTag, minDiscount);
-    console.log(`[Scraper] HTML parser: ${results.length} itens com desconto`);
-    if (results.length > 0) {
-      const ex = results[0];
-      console.log(`[Scraper] Ex: "${ex.title.substring(0,40)}" | sale: ${ex.sale_price} | orig: ${ex.original_price} | desc: ${ex.discount_percent}%`);
-    }
-    return results;
-
-  } catch (err) {
-    console.error('[Scraper] Erro ao buscar', url, ':', err.message);
-    return [];
-  }
-}
+// ─── API pública ───────────────────────────────────────────────
 
 async function scrapeOffersOfDay(affiliateTag, minDiscount = 15) {
-  console.log('[Scraper] Buscando ofertas do dia...');
+  console.log('[ML] Buscando ofertas do dia...');
   const all = [];
 
-  const urls = [
-    'https://www.mercadolivre.com.br/ofertas',
-    'https://www.mercadolivre.com.br/ofertas#nav-header',
+  const searches = [
+    { category: 'MLB1000', sort: 'relevance', limit: 50 }, // eletrônicos
+    { category: 'MLB1051', sort: 'relevance', limit: 50 }, // celulares
+    { category: 'MLB1648', sort: 'relevance', limit: 50 }, // informática
+    { category: 'MLB1574', sort: 'relevance', limit: 50 }, // eletrodomésticos
   ];
 
-  for (const url of urls) {
-    const r = await scrapeUrl(url, affiliateTag, minDiscount);
-    all.push(...r);
-    if (r.length > 0) break; // se achou, não precisa tentar a segunda
-    await delay(2000);
+  for (const params of searches) {
+    try {
+      const r = await fetchWithPrices(params, affiliateTag, minDiscount);
+      all.push(...r);
+      await delay(1500);
+    } catch (err) {
+      console.error('[ML] Erro categoria:', err.message);
+    }
   }
 
-  console.log(`[Scraper] Ofertas do dia: ${all.length} com desconto`);
   return dedupe(all);
 }
 
 async function scrapeByKeyword(keyword, affiliateTag, minDiscount = 15) {
-  console.log(`[Scraper] Buscando: "${keyword}"`);
-  const url = `https://www.mercadolivre.com.br/busca?q=${encodeURIComponent(keyword)}&sort=relevance`;
-  const r = await scrapeUrl(url, affiliateTag, minDiscount);
-  console.log(`[Scraper] "${keyword}": ${r.length} com desconto`);
-  return r;
+  console.log(`[ML] Keyword: "${keyword}"`);
+  try {
+    return await fetchWithPrices({ q: keyword, sort: 'relevance', limit: 30 }, affiliateTag, minDiscount);
+  } catch (err) {
+    console.error(`[ML] Erro keyword "${keyword}":`, err.message);
+    return [];
+  }
 }
 
 async function scrapeByCategory(categoryKey, affiliateTag, minDiscount = 15) {
-  const catId = ML_CATEGORIES[categoryKey];
-  if (!catId) return [];
-  console.log(`[Scraper] Categoria: ${categoryKey}`);
-  const url = `https://www.mercadolivre.com.br/ofertas?category=${catId}`;
-  const r = await scrapeUrl(url, affiliateTag, minDiscount);
-  console.log(`[Scraper] Categoria "${categoryKey}": ${r.length} com desconto`);
-  return r;
+  const categoryId = ML_CATEGORIES[categoryKey];
+  if (!categoryId) return [];
+  console.log(`[ML] Categoria: ${categoryKey}`);
+  try {
+    return await fetchWithPrices({ category: categoryId, sort: 'relevance', limit: 30 }, affiliateTag, minDiscount);
+  } catch (err) {
+    console.error(`[ML] Erro categoria "${categoryKey}":`, err.message);
+    return [];
+  }
 }
 
 function dedupe(items) {
