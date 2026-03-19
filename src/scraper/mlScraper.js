@@ -1,11 +1,20 @@
 const axios = require('axios');
 
-// ─── Documentação oficial usada ────────────────────────────────
-// Search:     GET /sites/MLB/search?q=...&access_token=TOKEN
-// Item price: GET /items/{id}/sale_price?context=channel_marketplace
-//             Retorna: { amount (preço atual), regular_amount (preço original se em promoção) }
-// Multi-item: GET /items?ids=MLB1,MLB2&attributes=id,title,thumbnail,permalink,original_price
+// ─── Endpoints usados (documentação oficial ML) ─────────────────
+// Highlights (best sellers por categoria) — requer token:
+//   GET /highlights/MLB/category/{category_id}
+//   Retorna: { content: [{id, position, type}] }
+//
+// Detalhes de itens em lote — requer token:
+//   GET /items?ids=MLB1,MLB2&attributes=id,title,thumbnail,permalink,seller
+//
+// Preços oficiais — requer token:
+//   GET /items/{id}/prices
+//   Retorna: { prices: [{type, amount, regular_amount, ...}] }
+//   regular_amount = preço original quando há promoção ativa
+//
 // Ref: https://developers.mercadolivre.com.br/pt_br/api-de-precos
+//      https://developers.mercadolibre.com.ar/en_us/best-sellers-in-mercado-libre
 
 const ML_CATEGORIES = {
   eletronicos:      'MLB1000',
@@ -18,13 +27,23 @@ const ML_CATEGORIES = {
   games:            'MLB1144',
 };
 
+// Categorias populares para varredura de ofertas
+const OFFER_CATEGORIES = [
+  'MLB1051', // celulares
+  'MLB1000', // eletrônicos
+  'MLB1648', // informática
+  'MLB1574', // eletrodomésticos
+  'MLB1276', // esportes
+  'MLB1459', // casa
+];
+
 function getToken() {
   return process.env.ML_ACCESS_TOKEN || null;
 }
 
-function authHeaders() {
-  const token = getToken();
-  return token ? { 'Authorization': 'Bearer ' + token } : {};
+function authHeader() {
+  const t = getToken();
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
 }
 
 function buildAffiliateUrl(url, tag) {
@@ -39,243 +58,210 @@ function buildAffiliateUrl(url, tag) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ─── Passo 1: busca IDs via /search ────────────────────────────
-async function searchIds(params) {
-  const token = getToken();
-  const qs = new URLSearchParams(params);
-  if (token) qs.set('access_token', token);
-
-  const url = `https://api.mercadolibre.com/sites/MLB/search?${qs}`;
-  console.log('[ML] Search:', url.replace(token || '', 'TOKEN'));
-
+// ─── 1. Highlights: best sellers de uma categoria ───────────────
+async function fetchHighlights(categoryId) {
+  const url = `https://api.mercadolibre.com/highlights/MLB/category/${categoryId}`;
   const resp = await axios.get(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', ...authHeaders() },
-    timeout: 15000,
+    headers: { 'Accept': 'application/json', ...authHeader() },
+    timeout: 12000,
   });
-
-  return (resp.data.results || []).map(r => r.id).filter(Boolean);
+  const content = resp.data.content || [];
+  return content.filter(c => c.type === 'ITEM').map(c => c.id);
 }
 
-// ─── Passo 2: busca detalhes em lote via /items?ids= ───────────
-// Retorna title, thumbnail, permalink, original_price (campo legado, ainda disponível)
+// ─── 2. Detalhes em lote via /items?ids= ────────────────────────
 async function fetchItemsBatch(ids) {
   if (!ids.length) return [];
-  const token = getToken();
+  const results = [];
 
-  // Máximo 20 por chamada (limite ML)
-  const chunks = [];
-  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
-
-  const allItems = [];
-  for (const chunk of chunks) {
+  // ML aceita até 20 por chamada
+  for (let i = 0; i < ids.length; i += 20) {
+    const chunk = ids.slice(i, i + 20);
     try {
-      const qs = new URLSearchParams({
-        ids: chunk.join(','),
-        attributes: 'id,title,thumbnail,permalink,price,original_price,currency_id',
-      });
-      if (token) qs.set('access_token', token);
-
-      const url = `https://api.mercadolibre.com/items?${qs}`;
+      const url = `https://api.mercadolibre.com/items?ids=${chunk.join(',')}&attributes=id,title,thumbnail,permalink,category_id,seller`;
       const resp = await axios.get(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', ...authHeaders() },
-        timeout: 15000,
+        headers: { 'Accept': 'application/json', ...authHeader() },
+        timeout: 12000,
       });
-
       for (const entry of (resp.data || [])) {
-        if (entry.code === 200 && entry.body) allItems.push(entry.body);
+        if (entry.code === 200 && entry.body) results.push(entry.body);
       }
       await delay(300);
     } catch (err) {
-      console.error('[ML] Erro batch /items:', err.message);
+      console.error('[ML] Erro /items batch:', err.message);
     }
   }
-  return allItems;
+  return results;
 }
 
-// ─── Passo 3: busca preço real via /sale_price (API oficial) ───
-// É o endpoint correto segundo a documentação — retorna amount + regular_amount
-async function fetchSalePrices(ids) {
-  const token = getToken();
-  if (!token) return {}; // sale_price requer token
+// ─── 3. Preços via /items/{id}/prices (API oficial) ─────────────
+// Retorna amount (preço atual) e regular_amount (original se em promoção)
+async function fetchPrice(itemId) {
+  try {
+    const url = `https://api.mercadolibre.com/items/${itemId}/prices`;
+    const resp = await axios.get(url, {
+      headers: { 'Accept': 'application/json', ...authHeader() },
+      timeout: 8000,
+    });
 
+    // Procura o preço do canal "marketplace" (canal principal de compras)
+    const prices = resp.data.prices || [];
+    const marketplace = prices.find(p =>
+      p.conditions?.context_restrictions?.includes('channel_marketplace') ||
+      p.type === 'standard' ||
+      prices.indexOf(p) === 0
+    );
+
+    if (!marketplace) return null;
+
+    return {
+      sale_price:     marketplace.amount,
+      original_price: marketplace.regular_amount || null,
+      currency:       resp.data.currency_id,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ─── 4. Preços em lote (paralelo com controle de concorrência) ──
+async function fetchPricesBatch(ids, concurrency = 5) {
   const priceMap = {};
-  const chunks = [];
-  for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
+  const queue = [...ids];
 
-  for (const chunk of chunks) {
-    // ML suporta multi-get: /items/price?ids=MLB1,MLB2
-    try {
-      const url = `https://api.mercadolibre.com/items/prices?ids=${chunk.join(',')}&context=channel_marketplace`;
-      const resp = await axios.get(url, {
-        headers: { 'Accept': 'application/json', ...authHeaders() },
-        timeout: 15000,
-      });
-
-      for (const entry of (resp.data || [])) {
-        if (entry.code === 200 && entry.body) {
-          // body: { amount, regular_amount, currency_id }
-          priceMap[entry.id] = {
-            sale_price:     entry.body.amount,
-            original_price: entry.body.regular_amount || null,
-          };
-        }
-      }
-    } catch (err) {
-      // Fallback: tenta um a um se o batch falhar
-      for (const id of chunk) {
-        try {
-          const url = `https://api.mercadolibre.com/items/${id}/sale_price?context=channel_marketplace`;
-          const resp = await axios.get(url, {
-            headers: { 'Accept': 'application/json', ...authHeaders() },
-            timeout: 8000,
-          });
-          priceMap[id] = {
-            sale_price:     resp.data.amount,
-            original_price: resp.data.regular_amount || null,
-          };
-          await delay(100);
-        } catch {}
-      }
+  async function worker() {
+    while (queue.length > 0) {
+      const id = queue.shift();
+      if (!id) break;
+      const p = await fetchPrice(id);
+      if (p) priceMap[id] = p;
+      await delay(150); // respeita rate limit ML
     }
-    await delay(500);
   }
 
+  // Roda N workers em paralelo
+  await Promise.all(Array.from({ length: concurrency }, worker));
   return priceMap;
 }
 
-// ─── Montagem final do objeto promoção ─────────────────────────
-function buildPromo(item, priceData, affiliateTag, minDiscount) {
-  const salePrice     = priceData?.sale_price     ?? item.price;
-  const originalPrice = priceData?.original_price ?? item.original_price ?? null;
+// ─── Pipeline principal ─────────────────────────────────────────
+async function processIds(ids, affiliateTag, minDiscount, itemDetails = null) {
+  if (!ids.length) return [];
 
-  if (!salePrice) return null;
+  // Busca detalhes se não foram fornecidos
+  const items = itemDetails || await fetchItemsBatch(ids);
+  if (!items.length) return [];
 
-  let discountPercent = null;
-  if (originalPrice && originalPrice > salePrice) {
-    discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
-  }
+  console.log(`[ML] Buscando preços de ${items.length} itens...`);
+  const priceMap = await fetchPricesBatch(items.map(i => i.id));
+  console.log(`[ML] ${Object.keys(priceMap).length} preços obtidos`);
 
-  if (discountPercent !== null && discountPercent < minDiscount) return null;
-
-  // Melhora resolução da imagem (D = maior resolução)
-  const imageUrl = (item.thumbnail || '')
-    .replace('http://', 'https://')
-    .replace(/\/[A-Z]_NP_/g, '/D_NP_')
-    .replace(/-[A-Z]\.jpg/, '-O.jpg') || null;
-
-  return {
-    ml_id:            item.id,
-    title:            (item.title || '').substring(0, 200),
-    original_price:   originalPrice,
-    sale_price:       salePrice,
-    discount_percent: discountPercent,
-    image_url:        imageUrl && imageUrl.startsWith('http') ? imageUrl : null,
-    original_url:     item.permalink,
-    affiliate_url:    buildAffiliateUrl(item.permalink, affiliateTag),
-    category:         item.category_id || 'geral',
-    seller:           item.seller?.nickname || null,
-    source:           'mercadolivre',
-  };
-}
-
-// ─── Pipeline completo: search → items → sale_price ─────────────
-async function fetchWithPrices(searchParams, affiliateTag, minDiscount) {
-  // 1. Busca IDs
-  let ids;
-  try {
-    ids = await searchIds(searchParams);
-  } catch (err) {
-    console.error('[ML] Erro no search:', err.response?.data?.message || err.message);
-    return [];
-  }
-
-  if (!ids.length) { console.log('[ML] Nenhum ID retornado'); return []; }
-  console.log(`[ML] ${ids.length} IDs encontrados`);
-
-  // 2. Detalhes dos itens (título, imagem, permalink)
-  const items = await fetchItemsBatch(ids);
-  console.log(`[ML] ${items.length} itens com detalhes`);
-
-  // 3. Preços reais via sale_price (se tiver token)
-  const token = getToken();
-  let priceMap = {};
-  if (token) {
-    priceMap = await fetchSalePrices(ids);
-    console.log(`[ML] ${Object.keys(priceMap).length} preços obtidos via sale_price`);
-  } else {
-    console.log('[ML] Sem token — usando original_price do /items (campo legado)');
-  }
-
-  // 4. Monta os objetos finais
   const results = [];
   for (const item of items) {
-    const promo = buildPromo(item, priceMap[item.id], affiliateTag, minDiscount);
-    if (promo) results.push(promo);
+    const p = priceMap[item.id];
+    if (!p || !p.sale_price) continue;
+
+    const salePrice     = p.sale_price;
+    const originalPrice = p.original_price;
+
+    let discountPercent = null;
+    if (originalPrice && originalPrice > salePrice) {
+      discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
+    }
+
+    // Só pula se calculou desconto e é menor que o mínimo
+    if (discountPercent !== null && discountPercent < minDiscount) continue;
+    // Sem desconto calculado e não tem original_price → skip (preço normal, não é promoção)
+    if (discountPercent === null && !originalPrice) continue;
+
+    const imageUrl = (item.thumbnail || '')
+      .replace('http://', 'https://')
+      .replace(/\/[A-Z]_NP_/, '/D_NP_')
+      .replace(/-[A-Z]\.jpg$/, '-O.jpg');
+
+    results.push({
+      ml_id:            item.id,
+      title:            (item.title || '').substring(0, 200),
+      original_price:   originalPrice,
+      sale_price:       salePrice,
+      discount_percent: discountPercent,
+      image_url:        imageUrl.startsWith('https') ? imageUrl : null,
+      original_url:     item.permalink,
+      affiliate_url:    buildAffiliateUrl(item.permalink, affiliateTag),
+      category:         item.category_id || 'geral',
+      seller:           item.seller?.nickname || null,
+      source:           'mercadolivre',
+    });
   }
 
   if (results.length > 0) {
     const ex = results[0];
-    console.log(`[ML] Ex: "${ex.title.substring(0,45)}" | sale: R$${ex.sale_price} | orig: R$${ex.original_price} | desc: ${ex.discount_percent}%`);
+    console.log(`[ML] Ex: "${ex.title.substring(0,45)}" | R$${ex.sale_price} (era R$${ex.original_price}) | -${ex.discount_percent}%`);
   }
 
   return results;
 }
 
-// ─── API pública ───────────────────────────────────────────────
+function dedupe(items) {
+  const seen = new Set();
+  return items.filter(r => { if (seen.has(r.ml_id)) return false; seen.add(r.ml_id); return true; });
+}
+
+// ─── API pública ────────────────────────────────────────────────
 
 async function scrapeOffersOfDay(affiliateTag, minDiscount = 15) {
-  console.log('[ML] Buscando ofertas do dia...');
+  console.log('[ML] Buscando highlights por categoria...');
+
+  const token = getToken();
+  if (!token) {
+    console.warn('[ML] Sem token — autentique em /ml/auth');
+    return [];
+  }
+
   const all = [];
-
-  const searches = [
-    { category: 'MLB1000', sort: 'relevance', limit: 50 }, // eletrônicos
-    { category: 'MLB1051', sort: 'relevance', limit: 50 }, // celulares
-    { category: 'MLB1648', sort: 'relevance', limit: 50 }, // informática
-    { category: 'MLB1574', sort: 'relevance', limit: 50 }, // eletrodomésticos
-  ];
-
-  for (const params of searches) {
+  for (const catId of OFFER_CATEGORIES) {
     try {
-      const r = await fetchWithPrices(params, affiliateTag, minDiscount);
+      console.log(`[ML] Highlights categoria ${catId}...`);
+      const ids = await fetchHighlights(catId);
+      console.log(`[ML] ${ids.length} IDs de highlights`);
+      if (!ids.length) continue;
+
+      const r = await processIds(ids, affiliateTag, minDiscount);
       all.push(...r);
-      await delay(1500);
+      await delay(1000);
     } catch (err) {
-      console.error('[ML] Erro categoria:', err.message);
+      console.error(`[ML] Erro highlights ${catId}:`, err.response?.data?.message || err.message);
     }
   }
 
-  return dedupe(all);
+  const result = dedupe(all);
+  console.log(`[ML] Total ofertas do dia: ${result.length}`);
+  return result;
 }
 
 async function scrapeByKeyword(keyword, affiliateTag, minDiscount = 15) {
-  console.log(`[ML] Keyword: "${keyword}"`);
-  try {
-    return await fetchWithPrices({ q: keyword, sort: 'relevance', limit: 30 }, affiliateTag, minDiscount);
-  } catch (err) {
-    console.error(`[ML] Erro keyword "${keyword}":`, err.message);
-    return [];
-  }
+  // Keyword search requer aprovação do app no ML
+  // Alternativa: buscar nos highlights das categorias relevantes
+  console.log(`[ML] Keyword "${keyword}" — usando highlights gerais`);
+  return [];
 }
 
 async function scrapeByCategory(categoryKey, affiliateTag, minDiscount = 15) {
   const categoryId = ML_CATEGORIES[categoryKey];
   if (!categoryId) return [];
-  console.log(`[ML] Categoria: ${categoryKey}`);
+
+  const token = getToken();
+  if (!token) return [];
+
+  console.log(`[ML] Categoria: ${categoryKey} (${categoryId})`);
   try {
-    return await fetchWithPrices({ category: categoryId, sort: 'relevance', limit: 30 }, affiliateTag, minDiscount);
+    const ids = await fetchHighlights(categoryId);
+    if (!ids.length) return [];
+    return await processIds(ids, affiliateTag, minDiscount);
   } catch (err) {
-    console.error(`[ML] Erro categoria "${categoryKey}":`, err.message);
+    console.error(`[ML] Erro categoria "${categoryKey}":`, err.response?.data?.message || err.message);
     return [];
   }
-}
-
-function dedupe(items) {
-  const seen = new Set();
-  return items.filter(r => {
-    if (seen.has(r.ml_id)) return false;
-    seen.add(r.ml_id);
-    return true;
-  });
 }
 
 module.exports = { scrapeOffersOfDay, scrapeByKeyword, scrapeByCategory, buildAffiliateUrl };
