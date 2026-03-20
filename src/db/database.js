@@ -31,6 +31,7 @@ function initSchema() {
       category TEXT,
       seller TEXT,
       source TEXT DEFAULT 'mercadolivre',
+      extra_info TEXT,
       found_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       posted_at DATETIME,
       status TEXT DEFAULT 'pending'
@@ -73,6 +74,13 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_promotions_status ON promotions(status);
     CREATE INDEX IF NOT EXISTS idx_promotions_found_at ON promotions(found_at);
   `);
+
+  // Migração: adiciona colunas novas em bancos existentes
+  const cols = db.pragma('table_info(promotions)').map(c => c.name);
+  if (!cols.includes('extra_info')) {
+    db.exec('ALTER TABLE promotions ADD COLUMN extra_info TEXT');
+    console.log('[DB] Coluna extra_info adicionada via migração');
+  }
 
   // Insere fontes padrão se não existirem
   const defaults = [
