@@ -515,7 +515,8 @@ function navigate(page, el) {
   if (el) el.classList.add('active');
   document.getElementById('page-title').textContent = {
     dashboard: 'Dashboard', pending: 'Promoções pendentes',
-    history: 'Histórico', channels: 'Canais Telegram', settings: 'Configuração'
+    history: 'Histórico', channels: 'Canais Telegram',
+    sources: 'Fontes', whatsapp: 'WhatsApp', settings: 'Configuração'
   }[page] || page;
   render(page);
 }
