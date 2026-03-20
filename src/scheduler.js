@@ -16,6 +16,7 @@ function getConfig() {
     shopeeAffiliateTag: process.env.SHOPEE_AFFILIATE_TAG || '',
     minDiscount:        parseInt(process.env.MIN_DISCOUNT_PERCENT || '15'),
     intervalMinutes:    parseInt(process.env.SCRAPE_INTERVAL_MINUTES || '30'),
+    postInterval:       parseInt(process.env.POST_INTERVAL_MINUTES || '5') * 60 * 1000,
     keywords:           (process.env.SEARCH_KEYWORDS || '').split(',').map(k => k.trim()).filter(Boolean),
   };
 }
@@ -92,12 +93,15 @@ async function runScrapeAndPost() {
   }
   console.log(`[Scheduler] ${savedCount} novas promoções salvas (${allPromos.length} encontradas)`);
 
+  // Posta apenas 1 promoção por ciclo — as demais ficam pendentes
+  // para serem postadas nos próximos ciclos (POST_INTERVAL_MINUTES)
   const pending = getPendingPromotions();
   let postedCount = 0;
-  for (const promo of pending) {
+  if (pending.length > 0) {
+    const promo = pending[0];
     const result = await sendPromotion(promo);
     if (result.success) { markAsPosted(promo.id); postedCount++; }
-    await delay(3000);
+    console.log(`[Scheduler] Próxima promoção em ${cfg.postInterval / 60000} min (${pending.length - 1} na fila)`);
   }
 
   console.log(`[Scheduler] ✓ Ciclo concluído: ${postedCount} postadas`);
@@ -107,14 +111,71 @@ async function runScrapeAndPost() {
 
 function startScheduler() {
   const cfg = getConfig();
-  const minutes = Math.max(cfg.intervalMinutes, 10);
-  console.log(`[Scheduler] Intervalo: ${minutes} min`);
-  cronJob = cron.schedule(`*/${minutes} * * * *`, async () => {
-    await runScrapeAndPost();
-    updateNextRun(minutes);
+  const scrapeMinutes = Math.max(cfg.intervalMinutes, 10);
+  const postMinutes   = Math.max(Math.round(cfg.postInterval / 60000), 1);
+
+  console.log(`[Scheduler] Scraping a cada ${scrapeMinutes} min | Postagem a cada ${postMinutes} min`);
+
+  // Cron de SCRAPING — busca novas promoções periodicamente
+  cron.schedule(`*/${scrapeMinutes} * * * *`, async () => {
+    await runScrapeOnly();
+    updateNextRun(postMinutes);
   });
-  updateNextRun(minutes);
-  setTimeout(async () => { await runScrapeAndPost(); updateNextRun(minutes); }, 5000);
+
+  // Cron de POSTAGEM — posta 1 promoção pendente a cada X minutos
+  cronJob = cron.schedule(`*/${postMinutes} * * * *`, async () => {
+    await postNext();
+    updateNextRun(postMinutes);
+  });
+
+  updateNextRun(postMinutes);
+
+  // Execução inicial
+  setTimeout(async () => {
+    await runScrapeAndPost();
+    updateNextRun(postMinutes);
+  }, 5000);
+}
+
+// Só busca promoções sem postar
+async function runScrapeOnly() {
+  if (isRunning) return;
+  isRunning = true;
+  lastRunAt = new Date();
+  console.log('[Scheduler] Buscando novas promoções...');
+  const cfg = getConfig();
+  const allPromos = [];
+
+  if (isSourceActive('shopee')) {
+    try {
+      const r = await scrapeShopeeOffers(cfg.shopeeAffiliateTag || cfg.mlAffiliateTag, cfg.minDiscount);
+      allPromos.push(...r);
+      updateSourceRun('shopee', r.length);
+    } catch {}
+  }
+  if (isSourceActive('rakuten')) {
+    try {
+      const r = await scrapeRakutenOffers(cfg.mlAffiliateTag, cfg.minDiscount);
+      allPromos.push(...r);
+      updateSourceRun('rakuten', r.length);
+    } catch {}
+  }
+
+  let saved = 0;
+  for (const p of allPromos) { if (savePromotion(p)) saved++; }
+  console.log(`[Scheduler] ${saved} novas promoções salvas`);
+  isRunning = false;
+}
+
+// Posta apenas a próxima promoção pendente
+async function postNext() {
+  if (isRunning) return;
+  const pending = getPendingPromotions();
+  if (!pending.length) { console.log('[Scheduler] Nenhuma promoção pendente'); return; }
+  const promo = pending[0];
+  console.log(`[Scheduler] Postando: "${promo.title.substring(0,45)}" (${pending.length - 1} na fila)`);
+  const result = await sendPromotion(promo);
+  if (result.success) markAsPosted(promo.id);
 }
 
 function stopScheduler() { if (cronJob) cronJob.stop(); }
