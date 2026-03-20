@@ -160,7 +160,7 @@ function processCoupon(coupon, affiliateTag, minDiscount) {
     ml_id:            'RAKUTEN_' + Buffer.from(clickUrl).toString('base64').substr(0, 20).replace(/[/+=]/g, ''),
     title:            displayTitle,
     original_price:   null,
-    sale_price:       null,
+    sale_price:       0,
     discount_percent: discountPercent,
     image_url:        imageUrl || null,
     original_url:     clickUrl,

@@ -97,7 +97,14 @@ function savePromotion(promo) {
     VALUES 
       (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller, @source)
   `);
-  return stmt.run({ source: 'mercadolivre', ...promo }).changes > 0;
+  const sanitized = {
+    source: 'mercadolivre',
+    ...promo,
+    sale_price: promo.sale_price ?? 0,
+    original_price: promo.original_price ?? null,
+    discount_percent: promo.discount_percent ?? null,
+  };
+  return stmt.run(sanitized).changes > 0;
 }
 
 function getPendingPromotions() {
