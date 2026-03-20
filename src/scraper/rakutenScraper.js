@@ -156,8 +156,12 @@ function processCoupon(coupon, affiliateTag, minDiscount) {
     }
   } catch {}
 
+  // Extrai offerid único da URL (ex: offerid=951620.1097 → 951620_1097)
+  const offerMatch = clickUrl.match(/offerid=([\d.]+)/);
+  const uniqueId = offerMatch ? offerMatch[1].replace('.', '_') : Buffer.from(clickUrl).toString('base64').substr(10, 15).replace(/[/+=]/g, '');
+
   return {
-    ml_id:            'RAKUTEN_' + Buffer.from(clickUrl).toString('base64').substr(0, 20).replace(/[/+=]/g, ''),
+    ml_id:            'RAKUTEN_' + uniqueId,
     title:            displayTitle,
     original_price:   null,
     sale_price:       0,

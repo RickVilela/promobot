@@ -76,14 +76,9 @@ function initSchema() {
 
   // Insere fontes padrão se não existirem
   const defaults = [
-    { id: 'ml_offers',   name: 'Mercado Livre — Ofertas do dia',   active: 1, config: '{}' },
-    { id: 'ml_keyword',  name: 'Mercado Livre — Palavras-chave',   active: 1, config: '{}' },
-    { id: 'ml_category', name: 'Mercado Livre — Categorias',       active: 1, config: '{}' },
-    { id: 'shopee',      name: 'Shopee — Ofertas do dia',          active: 0, config: '{}' },
-    { id: 'shopee_kw',   name: 'Shopee — Palavras-chave',          active: 0, config: '{}' },
-    { id: 'pelando_hot',  name: 'Hardmob — Promoções (RSS)',          active: 1, config: '{}' },
-    { id: 'pelando_recent', name: 'Hardmob — Recentes (desativado)', active: 0, config: '{}' },
-    { id: 'rakuten',      name: 'Rakuten — Coupon Feed (BR)',        active: 0, config: '{}' },
+    { id: 'shopee',    name: 'Shopee — Ofertas do dia',    active: 0, config: '{}' },
+    { id: 'shopee_kw', name: 'Shopee — Palavras-chave',    active: 0, config: '{}' },
+    { id: 'rakuten',   name: 'Rakuten — Coupon Feed (BR)', active: 1, config: '{}' },
   ];
   const stmt = db.prepare(`INSERT OR IGNORE INTO sources (id, name, active, config) VALUES (@id, @name, @active, @config)`);
   defaults.forEach(s => stmt.run(s));

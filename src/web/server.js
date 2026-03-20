@@ -196,6 +196,13 @@ app.patch('/api/sources/:id/toggle', (req, res) => {
   res.json({ ok: true });
 });
 
+// Testar WhatsApp
+app.get('/api/whatsapp/test', async (req, res) => {
+  const { testConnection } = require('../bot/whatsapp');
+  const result = await testConnection();
+  res.json(result);
+});
+
 // Testar conexão Telegram
 app.get('/api/telegram/test', async (req, res) => {
   const result = await testConnection();
@@ -642,9 +649,6 @@ async function renderSources() {
   const data = await fetch('/api/sources').then(r => r.json());
 
   const sourceInfo = {
-    ml_offers:   { icon: '🛒', label: 'Mercado Livre', desc: 'Scraping da página de ofertas do dia', cred: 'ML_AFFILIATE_TAG', link: null },
-    ml_keyword:  { icon: '🔍', label: 'ML por palavras-chave', desc: 'Busca por smartphone, notebook, tv...', cred: 'SEARCH_KEYWORDS', link: null },
-    ml_category: { icon: '📦', label: 'ML por categorias', desc: 'Eletrônicos, informática, eletrodomésticos', cred: 'ML_CATEGORIES', link: null },
     shopee:      { icon: '🧡', label: 'Shopee — Ofertas do dia', desc: 'API oficial de afiliados Shopee', cred: 'SHOPEE_APP_ID + SHOPEE_SECRET', link: 'https://affiliate.shopee.com.br' },
     rakuten:        { icon: '🏪', label: 'Rakuten — Coupon Feed', desc: 'Americanas, Netshoes, Centauro e +50 lojas BR', cred: 'RAKUTEN_WS_TOKEN', link: 'https://publisher.rakutenadvertising.com' },
     pelando_hot:    { icon: '🔥', label: 'Pelando — Quentes', desc: 'Promoções mais votadas da comunidade', cred: 'sem configuração', link: null },
@@ -734,6 +738,7 @@ function renderSettings() {
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;">Testar conexão</div>
         <button class="btn btn-green" onclick="testTelegram(this)">Testar bot Telegram</button>
+        <button class="btn" style="margin-top:8px" onclick="testWhatsapp(this)">Testar WhatsApp</button>
         <div id="test-result" style="margin-top:10px;font-size:12px;font-family:var(--mono);color:var(--muted);"></div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
@@ -743,6 +748,17 @@ function renderSettings() {
       </div>
     </div>
   \`;
+}
+
+async function testWhatsapp(btn) {
+  btn.innerHTML = '<div class="loader"></div> testando...';
+  btn.disabled = true;
+  const r = await fetch('/api/whatsapp/test').then(res => res.json());
+  document.getElementById('test-result').textContent =
+    r.ok ? '✓ WhatsApp conectado: ' + (r.phone?.display_phone_number || r.phone?.id) : '✗ Erro: ' + r.error;
+  document.getElementById('test-result').style.color = r.ok ? 'var(--accent)' : 'var(--danger)';
+  btn.innerHTML = 'Testar WhatsApp';
+  btn.disabled = false;
 }
 
 async function testTelegram(btn) {
