@@ -763,52 +763,45 @@ async function toggleSrc(id, toggleEl) {
 
 // ─── WHATSAPP ─────────────────────────────────────────────────
 async function renderWhatsApp() {
-  document.getElementById('content').innerHTML = `
-    <div style="max-width:480px">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px">Status da conexão</div>
-        <div id="wa-status" style="font-size:12px;color:var(--muted)">Verificando...</div>
-        <div style="margin-top:12px;display:flex;gap:8px">
-          <button class="btn btn-green" onclick="loadQR(this)">📱 Gerar QR Code</button>
-          <button class="btn" onclick="checkWaStatus()">↻ Verificar status</button>
-        </div>
-      </div>
-      <div id="qr-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;margin-bottom:14px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Escaneie com seu WhatsApp</div>
-        <div id="qr-content" style="min-height:200px;display:flex;align-items:center;justify-content:center">
-          <div class="loader"></div>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:10px">Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo</div>
-        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
-          <button class="btn" onclick="loadQR(this)">↻ Atualizar QR</button>
-          <button class="btn" onclick="document.getElementById('qr-box').style.display='none'">Fechar</button>
-        </div>
-      </div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px">Canais configurados</div>
-        <div style="font-size:12px;color:var(--muted);line-height:2;font-family:var(--mono)" id="wa-channels">
-          Carregando...
-        </div>
-      </div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:8px">Como conectar</div>
-        <ol style="font-size:12px;color:var(--muted);padding-left:16px;line-height:2.2">
-          <li>Clique em <strong style="color:var(--text)">Gerar QR Code</strong></li>
-          <li>Abra o WhatsApp no celular</li>
-          <li>Toque em <strong style="color:var(--text)">⋮ → Dispositivos conectados</strong></li>
-          <li>Toque em <strong style="color:var(--text)">Conectar dispositivo</strong></li>
-          <li>Escaneie o QR code que aparece acima</li>
-          <li>Aguarde a confirmação de conexão</li>
-        </ol>
-        <div style="margin-top:10px;font-size:11px;color:var(--muted)">
-          Variáveis necessárias no Railway:
-          <code style="color:var(--accent);display:block;margin-top:4px">WAPI_INSTANCE_ID=sua_instance_id</code>
-          <code style="color:var(--accent);display:block">WAPI_TOKEN=seu_token</code>
-          <code style="color:var(--accent);display:block">WAPI_CHANNELS=5511999999999</code>
-        </div>
-      </div>
-    </div>
-  \`;
+  const html = '<div style="max-width:480px">' +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:6px">Status da conexão</div>' +
+      '<div id="wa-status" style="font-size:12px;color:var(--muted)">Verificando...</div>' +
+      '<div style="margin-top:12px;display:flex;gap:8px">' +
+        '<button class="btn btn-green" onclick="loadQR(this)">📱 Gerar QR Code</button>' +
+        '<button class="btn" onclick="checkWaStatus()">↻ Verificar status</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="qr-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;margin-bottom:14px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:12px">Escaneie com seu WhatsApp</div>' +
+      '<div id="qr-content" style="min-height:200px;display:flex;align-items:center;justify-content:center"><div class="loader"></div></div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:10px">WhatsApp → Dispositivos conectados → Conectar dispositivo</div>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;justify-content:center">' +
+        '<button class="btn" onclick="loadQR(this)">↻ Atualizar QR</button>' +
+        '<button class="btn" onclick="document.getElementById(\'qr-box\').style.display=\'none\'">Fechar</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Canais configurados</div>' +
+      '<div style="font-size:12px;color:var(--muted);line-height:2;font-family:var(--mono)" id="wa-channels">Carregando...</div>' +
+    '</div>' +
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Como conectar</div>' +
+      '<ol style="font-size:12px;color:var(--muted);padding-left:16px;line-height:2.2">' +
+        '<li>Clique em <strong style="color:var(--text)">Gerar QR Code</strong></li>' +
+        '<li>Abra o WhatsApp no celular</li>' +
+        '<li>Toque em <strong style="color:var(--text)">Dispositivos conectados</strong></li>' +
+        '<li>Toque em <strong style="color:var(--text)">Conectar dispositivo</strong></li>' +
+        '<li>Escaneie o QR code</li>' +
+      '</ol>' +
+      '<div style="margin-top:10px;font-size:11px;color:var(--muted)">Variáveis no Railway:' +
+        '<code style="color:var(--accent);display:block;margin-top:4px">WAPI_INSTANCE_ID=sua_instance_id</code>' +
+        '<code style="color:var(--accent);display:block">WAPI_TOKEN=seu_token</code>' +
+        '<code style="color:var(--accent);display:block">WAPI_CHANNELS=5511999999999</code>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+  document.getElementById('content').innerHTML = html;
   checkWaStatus();
 }
 
