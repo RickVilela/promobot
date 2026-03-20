@@ -81,6 +81,7 @@ async function fetchCouponFeed(extraParams = {}) {
 
   const resp = await axios.get(url, {
     headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/xml, text/xml' },
+    responseType: 'text',
     timeout: 20000,
   });
 
