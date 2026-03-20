@@ -227,7 +227,7 @@ app.get('/api/whatsapp/status', async (req, res) => {
   try {
     const axios = require('axios');
     const resp = await axios.get(
-      `https://api.w-api.app/v1/instance/info?instanceId=${instanceId}`,
+      `https://api.w-api.app/v1/instance/status-instance?instanceId=${instanceId}`,
       { headers: { 'Authorization': 'Bearer ' + token }, timeout: 10000 }
     );
     res.json({ connected: true, data: resp.data });
