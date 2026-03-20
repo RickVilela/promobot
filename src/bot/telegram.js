@@ -32,38 +32,43 @@ function escapeHtml(text) {
 function buildMessage(promo) {
   const discount = promo.discount_percent;
   const hasDiscount = discount && discount > 0;
+  const seller = promo.seller || 'loja parceira';
 
+  // Emoji de fogo baseado no desconto
   let fire = '🔥';
-  if (discount >= 50) fire = '🚨🔥';
-  else if (discount >= 30) fire = '💥';
+  if (discount >= 50) fire = '🚨🔥🚨';
+  else if (discount >= 30) fire = '💥🔥';
 
   let msg = '';
 
-  // Título em negrito
+  // Cabeçalho chamativo
   msg += fire + ' <b>' + escapeHtml(promo.title) + '</b>\n\n';
 
-  // Preço original riscado
+  // Bloco de preços
   if (hasDiscount && promo.original_price) {
-    msg += '<s>' + escapeHtml(formatPrice(promo.original_price)) + '</s>  ➡️  ';
+    msg += '💰 De: <s>' + escapeHtml(formatPrice(promo.original_price)) + '</s>\n';
+    msg += '🏷 Por: <b>' + escapeHtml(formatPrice(promo.sale_price)) + '</b>';
+    msg += '  ✅ <b>-' + discount + '% OFF</b>\n\n';
+  } else if (promo.sale_price && promo.sale_price > 0) {
+    msg += '🏷 <b>' + escapeHtml(formatPrice(promo.sale_price)) + '</b>';
+    if (hasDiscount) msg += '  ✅ <b>-' + discount + '% OFF</b>';
+    msg += '\n\n';
+  } else if (hasDiscount) {
+    msg += '✅ <b>' + discount + '% de desconto!</b>\n\n';
   }
 
-  // Preço promocional em negrito (só mostra se tiver valor)
-  if (promo.sale_price) {
-    msg += '<b>' + escapeHtml(formatPrice(promo.sale_price)) + '</b>';
-  }
-
-  // Badge de desconto
-  if (hasDiscount) {
-    msg += '  <b>(-' + discount + '% OFF)</b>';
-  }
-
-  msg += '\n\n';
-  msg += '┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n';
-  msg += '🛒 <a href="' + escapeHtml(promo.affiliate_url) + '">Comprar no Mercado Livre</a>\n\n';
+  // Código do cupom em destaque
   if (promo.extra_info) {
-    msg += '\n\n🎟 <b>' + escapeHtml(promo.extra_info) + '</b>';
+    msg += '🎟 <b>' + escapeHtml(promo.extra_info) + '</b>\n\n';
   }
-  msg += '\n\n<i>⏳ Promoção por tempo limitado. Corra!</i>';
+
+  msg += '━━━━━━━━━━━━━━━━━━\n';
+
+  // Link com nome correto da loja
+  const storeName = escapeHtml(seller);
+  msg += '🛒 <a href="' + escapeHtml(promo.affiliate_url) + '">Comprar na ' + storeName + '</a>\n\n';
+
+  msg += '<i>⏳ Oferta por tempo limitado — aproveite antes que acabe!</i>';
 
   return msg;
 }
