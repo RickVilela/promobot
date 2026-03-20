@@ -822,151 +822,31 @@ async function toggleSrc(id, toggleEl) {
 
 // ─── MANUAL ───────────────────────────────────────────────────
 function renderManual() {
-  document.getElementById('content').innerHTML =
-    '<div style="max-width:520px">' +
-      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">' +
-        '<div style="font-size:13px;font-weight:600;margin-bottom:16px">Nova promoção manual</div>' +
-        '<div class="field"><label>Título do produto <span style="color:var(--danger)">*</span></label>' +
-          '<input type="text" id="m-title" placeholder="Ex: Nike Air Max 270 — 40% OFF"></div>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
-          '<div class="field"><label>Preço com desconto (R$)</label>' +
-            '<input type="number" id="m-sale" placeholder="199.90" step="0.01"></div>' +
-          '<div class="field"><label>Preço original (R$)</label>' +
-            '<input type="number" id="m-original" placeholder="299.90" step="0.01"></div>' +
-        '</div>' +
-        '<div class="field"><label>% de desconto</label>' +
-          '<input type="number" id="m-discount" placeholder="Ex: 30 (opcional se tiver os preços)" min="0" max="100"></div>' +
-        '<div class="field"><label>Link de afiliado <span style="color:var(--danger)">*</span></label>' +
-          '<input type="url" id="m-url" placeholder="https://..."></div>' +
-        '<div class="field"><label>URL da imagem (opcional)</label>' +
-          '<input type="url" id="m-img" placeholder="https://..." oninput="previewImg(this.value)"></div>' +
-        '<div id="img-preview" style="margin:-4px 0 12px;display:none">' +
-          '<img id="img-preview-el" style="height:80px;border-radius:8px;object-fit:cover;border:0.5px solid var(--border)"></div>' +
-        '<div class="field"><label>Loja / Vendedor</label>' +
-          '<input type="text" id="m-seller" placeholder="Ex: Shopee, Amazon, Netshoes"></div>' +
-        '<div style="display:flex;gap:10px;margin-top:8px">' +
-          '<button class="btn btn-green" style="flex:1" onclick="submitManual(this)">✚ Adicionar à fila</button>' +
-          '<button class="btn" onclick="submitManual(this, true)">▶ Adicionar e postar agora</button>' +
-        '</div>' +
-        '<div id="m-result" style="margin-top:12px;font-size:12px;display:none"></div>' +
-      '</div>' +
-    '</div>';
-}
-
-function previewImg(url) {
-  const box = document.getElementById("img-preview");
-  const img = document.getElementById("img-preview-el");
-  if (url && url.startsWith("http")) {
-    img.src = url;
-    box.style.display = "";
-  } else {
-    box.style.display = "none";
-  }
-}
-
-async function submitManual(btn, postNow) {
-  const title    = document.getElementById("m-title").value.trim();
-  const url      = document.getElementById("m-url").value.trim();
-  const sale     = document.getElementById("m-sale").value;
-  const original = document.getElementById("m-original").value;
-  const discount = document.getElementById("m-discount").value;
-  const img      = document.getElementById("m-img").value.trim();
-  const seller   = document.getElementById("m-seller").value.trim();
-
-  if (!title || !url) { toast("Título e link são obrigatórios", "error"); return; }
-
-  btn.disabled = true;
-  btn.innerHTML = '<div class="loader"></div>';
-
-  const r = await fetch("/api/promotions/manual", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, affiliate_url: url, sale_price: sale, original_price: original,
-      discount_percent: discount, image_url: img, seller })
-  }).then(res => res.json());
-
-  if (r.ok && postNow && r.saved) {
-    // busca o id recém inserido e posta imediatamente
-    const pending = await fetch("/api/pending").then(res => res.json());
-    const promo = pending.find(p => p.source === "manual" && p.title === title);
-    if (promo) {
-      await fetch(\`/api/promotions/\${promo.id}/post\`, { method: "POST" });
-      toast("Postado com sucesso!", "success");
-    } else {
-      toast("Adicionado à fila!", "success");
-    }
-  } else {
-    toast(r.ok ? "Adicionado à fila!" : (r.error || "Erro"), r.ok ? "success" : "error");
-  }
-
-  btn.disabled = false;
-  btn.innerHTML = postNow ? "▶ Adicionar e postar agora" : "✚ Adicionar à fila";
-
-  if (r.ok && r.saved) {
-    // Limpa formulário
-    ["m-title","m-sale","m-original","m-discount","m-url","m-img","m-seller"].forEach(id => {
-      document.getElementById(id).value = "";
-    });
-    document.getElementById("img-preview").style.display = "none";
-  }
-}
-
-// ─── MANUAL PROMO ─────────────────────────────────────────────
-function renderManual() {
-  document.getElementById('content').innerHTML = \`
-    <div style="max-width:520px">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:16px">Cadastrar promoção manualmente</div>
-
-        <div class="field">
-          <label>Título do produto <span style="color:var(--danger)">*</span></label>
-          <input type="text" id="m-title" placeholder="Ex: Nike Air Max 270 - Tamanho 42" />
-        </div>
-        <div class="field">
-          <label>Link de afiliado <span style="color:var(--danger)">*</span></label>
-          <input type="text" id="m-url" placeholder="https://..." />
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="field">
-            <label>Preço com desconto (R$)</label>
-            <input type="number" id="m-sale" placeholder="199.90" step="0.01" />
-          </div>
-          <div class="field">
-            <label>Preço original (R$)</label>
-            <input type="number" id="m-original" placeholder="299.90" step="0.01" />
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div class="field">
-            <label>Loja / Vendedor</label>
-            <input type="text" id="m-seller" placeholder="Ex: Netshoes, Amazon" />
-          </div>
-          <div class="field">
-            <label>Código do cupom</label>
-            <input type="text" id="m-coupon" placeholder="Ex: PROMO10" />
-          </div>
-        </div>
-        <div class="field">
-          <label>URL da imagem (opcional)</label>
-          <input type="text" id="m-image" placeholder="https://..." />
-        </div>
-
-        <div id="m-preview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:12px 0;font-size:12px;font-family:var(--mono);white-space:pre-wrap;line-height:1.6"></div>
-
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <button class="btn" onclick="previewManual()">👁 Prévia</button>
-          <button class="btn btn-green" onclick="submitManual(this)">✚ Adicionar à fila</button>
-        </div>
-      </div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;font-size:12px;color:var(--muted)">
-        <div style="font-weight:600;color:var(--text);margin-bottom:6px">Como funciona</div>
-        <div style="line-height:2">
-          A promoção é adicionada à fila de pendentes e postada automaticamente no próximo ciclo de postagem (a cada \${Math.round((parseInt(localStorage.getItem('postInterval')) || 5))} min).
-          Para postar imediatamente, vá em <strong style="color:var(--text)">Pendentes</strong> e clique em ▶.
-        </div>
-      </div>
-    </div>
-  \`;
+  var h = '';
+  h += '<div style="max-width:520px">';
+  h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">';
+  h += '<div style="font-size:13px;font-weight:600;margin-bottom:16px">Cadastrar promoção manualmente</div>';
+  h += '<div class="field"><label>Título <span style="color:var(--danger)">*</span></label><input type="text" id="m-title" placeholder="Ex: Nike Air Max 270 - 42" /></div>';
+  h += '<div class="field"><label>Link de afiliado <span style="color:var(--danger)">*</span></label><input type="text" id="m-url" placeholder="https://..." /></div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+  h += '<div class="field"><label>Preço com desconto (R$)</label><input type="number" id="m-sale" placeholder="199.90" step="0.01" /></div>';
+  h += '<div class="field"><label>Preço original (R$)</label><input type="number" id="m-original" placeholder="299.90" step="0.01" /></div>';
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+  h += '<div class="field"><label>Loja</label><input type="text" id="m-seller" placeholder="Ex: Netshoes, Amazon" /></div>';
+  h += '<div class="field"><label>Código do cupom</label><input type="text" id="m-coupon" placeholder="Ex: PROMO10" /></div>';
+  h += '</div>';
+  h += '<div class="field"><label>URL da imagem (opcional)</label><input type="text" id="m-image" placeholder="https://..." /></div>';
+  h += '<div id="m-preview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin:12px 0;font-size:12px;font-family:var(--mono);white-space:pre-wrap;line-height:1.6"></div>';
+  h += '<div style="display:flex;gap:8px;margin-top:4px">';
+  h += '<button class="btn" onclick="previewManual()">👁 Prévia</button>';
+  h += '<button class="btn btn-green" onclick="submitManual(this)">✚ Adicionar à fila</button>';
+  h += '</div></div>';
+  h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;font-size:12px;color:var(--muted)">';
+  h += '<div style="font-weight:600;color:var(--text);margin-bottom:6px">Como funciona</div>';
+  h += '<div style="line-height:2">A promoção entra na fila e é postada automaticamente no próximo ciclo. Para postar imediatamente, vá em <strong style="color:var(--text)">Pendentes</strong> e clique em ▶.</div>';
+  h += '</div></div>';
+  document.getElementById('content').innerHTML = h;
 }
 
 function previewManual() {
