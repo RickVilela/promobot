@@ -142,10 +142,8 @@ function processCoupon(coupon, affiliateTag, minDiscount) {
   const displayTitle = (title || merchantName || '').substring(0, 200);
   if (!displayTitle) return null;
 
-  // Extrai desconto do texto da descrição
+  // Extrai desconto do texto da descrição (opcional — Rakuten aceita qualquer cupom)
   const discountPercent = extractDiscountFromText(title);
-
-  if (!discountPercent || discountPercent < minDiscount) return null;
 
   // Adiciona tag de afiliado extra se for link do ML
   let affUrl = clickUrl;
@@ -186,7 +184,7 @@ async function scrapeRakutenOffers(affiliateTag, minDiscount = 15) {
       .map(c => processCoupon(c, affiliateTag, minDiscount))
       .filter(Boolean);
 
-    console.log(`[Rakuten] ${results.length} promoções com >= ${minDiscount}% desconto`);
+    console.log(`[Rakuten] ${results.length} promoções encontradas`);
     if (results[0]) {
       const ex = results[0];
       console.log(`[Rakuten] Ex: "${ex.title.substring(0,45)}" | R$${ex.sale_price} (era R$${ex.original_price}) | -${ex.discount_percent}%`);
