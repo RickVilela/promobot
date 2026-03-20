@@ -58,7 +58,10 @@ function buildMessage(promo) {
   msg += '\n\n';
   msg += '┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n';
   msg += '🛒 <a href="' + escapeHtml(promo.affiliate_url) + '">Comprar no Mercado Livre</a>\n\n';
-  msg += '<i>⏳ Promoção por tempo limitado. Corra!</i>';
+  if (promo.extra_info) {
+    msg += '\n\n🎟 <b>' + escapeHtml(promo.extra_info) + '</b>';
+  }
+  msg += '\n\n<i>⏳ Promoção por tempo limitado. Corra!</i>';
 
   return msg;
 }

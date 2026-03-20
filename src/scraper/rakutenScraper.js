@@ -76,8 +76,7 @@ async function fetchCouponFeed(extraParams = {}) {
 
   const params = new URLSearchParams({
     token:          wsToken,
-    network:        networkId,
-    promotiontype:  'Sale|Coupon|Clearance',
+    promotiontype:  'Sale|Coupon|Clearance|Liquidação|Cupom',
     resultsperpage: '500',
     pagenumber:     '1',
     ...extraParams,
