@@ -47,8 +47,10 @@ function buildMessage(promo) {
     msg += '<s>' + escapeHtml(formatPrice(promo.original_price)) + '</s>  ➡️  ';
   }
 
-  // Preço promocional em negrito
-  msg += '<b>' + escapeHtml(formatPrice(promo.sale_price)) + '</b>';
+  // Preço promocional em negrito (só mostra se tiver valor)
+  if (promo.sale_price) {
+    msg += '<b>' + escapeHtml(formatPrice(promo.sale_price)) + '</b>';
+  }
 
   // Badge de desconto
   if (hasDiscount) {

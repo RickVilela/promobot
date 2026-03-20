@@ -95,22 +95,27 @@ async function fetchCouponFeed(extraParams = {}) {
   console.log(`[Rakuten] ${total || '?'} cupons disponíveis`);
 
   const coupons = [];
-  $('coupon').each((_, el) => {
+  // XML usa <link> como elemento de cada promoção (não <coupon>)
+  $('link').each((_, el) => {
     try {
       const $el = $(el);
+      const description = $el.find('offerdescription').text().trim();
+      const clickUrl    = $el.find('clickurl').text().trim();
+      if (!description || !clickUrl) return;
+
       coupons.push({
-        mid:          $el.find('mid').text().trim(),
-        merchantName: $el.find('merchantname').text().trim(),
-        title:        $el.find('offerdescription').text().trim(),
-        productName:  $el.find('productname').text().trim(),
-        clickUrl:     $el.find('clickurl').text().trim(),
-        imageUrl:     $el.find('imageurl').text().trim() || $el.find('productimageurl').text().trim() || null,
+        mid:          $el.find('advertiserid').text().trim(),
+        merchantName: $el.find('advertisername').text().trim(),
+        title:        description,
+        productName:  '',
+        clickUrl,
+        imageUrl:     null,
         couponCode:   $el.find('couponcode').text().trim() || null,
-        discountType: $el.find('discounttype').text().trim(),
-        discount:     parseFloat($el.find('discount').text()) || null,
-        salePrice:    parseFloat($el.find('saleprice').text()) || null,
-        retailPrice:  parseFloat($el.find('retail').text()) || null,
-        category:     $el.find('category').text().trim(),
+        discountType: $el.find('promotiontype').text().trim(),
+        discount:     null,
+        salePrice:    null,
+        retailPrice:  null,
+        category:     $el.find('category').first().text().trim(),
         endDate:      $el.find('offerenddate').text().trim(),
         promoType:    $el.find('promotiontype').text().trim(),
       });
@@ -120,29 +125,25 @@ async function fetchCouponFeed(extraParams = {}) {
   return coupons;
 }
 
+// ─── Extrai % de desconto do texto da descrição ──────────────────
+function extractDiscountFromText(text) {
+  if (!text) return null;
+  // Padrões: "10% OFF", "10% De Desconto", "Até 30% Off", "5% Em"
+  const match = text.match(/(\d+)\s*%/i);
+  return match ? parseInt(match[1]) : null;
+}
+
 // ─── Processa cupom em promoção para o bot ────────────────────────
 function processCoupon(coupon, affiliateTag, minDiscount) {
-  const { merchantName, title, productName, clickUrl, imageUrl,
-    discountType, discount, salePrice, retailPrice, couponCode } = coupon;
+  const { merchantName, title, clickUrl, imageUrl, couponCode } = coupon;
 
   if (!clickUrl) return null;
 
-  const displayTitle = (productName || title || merchantName || '').substring(0, 200);
+  const displayTitle = (title || merchantName || '').substring(0, 200);
   if (!displayTitle) return null;
 
-  let sale = salePrice;
-  let original = retailPrice;
-  let discountPercent = null;
-
-  if (discountType === 'Percent Off' && discount) {
-    discountPercent = Math.round(discount);
-    if (original && !sale) sale = Math.round(original * (1 - discount / 100) * 100) / 100;
-  } else if (discountType === 'Dollar Off' && discount && original) {
-    sale = Math.round((original - discount) * 100) / 100;
-    discountPercent = Math.round((discount / original) * 100);
-  } else if (original && sale && original > sale) {
-    discountPercent = Math.round(((original - sale) / original) * 100);
-  }
+  // Extrai desconto do texto da descrição
+  const discountPercent = extractDiscountFromText(title);
 
   if (!discountPercent || discountPercent < minDiscount) return null;
 
@@ -159,8 +160,8 @@ function processCoupon(coupon, affiliateTag, minDiscount) {
   return {
     ml_id:            'RAKUTEN_' + Buffer.from(clickUrl).toString('base64').substr(0, 20).replace(/[/+=]/g, ''),
     title:            displayTitle,
-    original_price:   original || null,
-    sale_price:       sale || null,
+    original_price:   null,
+    sale_price:       null,
     discount_percent: discountPercent,
     image_url:        imageUrl || null,
     original_url:     clickUrl,
@@ -168,7 +169,7 @@ function processCoupon(coupon, affiliateTag, minDiscount) {
     category:         coupon.category || merchantName || 'geral',
     seller:           merchantName || null,
     source:           'rakuten',
-    extra_info:       couponCode ? `Cupom: ${couponCode}` : null,
+    extra_info:       couponCode ? 'Cupom: ' + couponCode : null,
   };
 }
 
