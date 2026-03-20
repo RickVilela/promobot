@@ -213,6 +213,12 @@ app.get('/api/whatsapp/qrcode', async (req, res) => {
   }
 });
 
+// Canais WhatsApp configurados
+app.get('/api/whatsapp/channels', (req, res) => {
+  const channels = (process.env.WAPI_CHANNELS || '').split(',').filter(Boolean).map(s => s.trim());
+  res.json({ channels, configured: !!(process.env.WAPI_INSTANCE_ID && process.env.WAPI_TOKEN) });
+});
+
 // Status da instância WhatsApp
 app.get('/api/whatsapp/status', async (req, res) => {
   const instanceId = process.env.WAPI_INSTANCE_ID;
@@ -781,7 +787,7 @@ async function renderWhatsApp() {
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
         <div style="font-size:13px;font-weight:600;margin-bottom:8px">Canais configurados</div>
         <div style="font-size:12px;color:var(--muted);line-height:2;font-family:var(--mono)" id="wa-channels">
-          ${(process.env?.WAPI_CHANNELS || 'Nenhum canal configurado — adicione WAPI_CHANNELS no Railway').split(',').filter(Boolean).map(c => '<div>' + c.trim() + '</div>').join('') || 'Nenhum canal configurado'}
+          Carregando...
         </div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
@@ -835,6 +841,19 @@ async function checkWaStatus() {
   const el = document.getElementById('wa-status');
   if (!el) return;
   el.textContent = 'Verificando...';
+
+  // Carrega canais
+  try {
+    const ch = await fetch('/api/whatsapp/channels').then(r => r.json());
+    const chEl = document.getElementById('wa-channels');
+    if (chEl) {
+      chEl.innerHTML = ch.channels.length
+        ? ch.channels.map(c => \`<div>\${c}</div>\`).join('')
+        : '<div style="color:var(--warn)">Nenhum canal — adicione WAPI_CHANNELS no Railway</div>';
+    }
+  } catch {}
+
+  // Verifica status
   try {
     const r = await fetch('/api/whatsapp/status').then(res => res.json());
     if (r.connected) {
