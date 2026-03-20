@@ -1,7 +1,7 @@
 {
   "name": "promobot",
   "version": "1.0.0",
-  "description": "Bot de promoções Mercado Livre para Telegram",
+  "description": "Bot de promo\u00e7\u00f5es Mercado Livre para Telegram",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -19,5 +19,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
