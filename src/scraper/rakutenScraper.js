@@ -90,37 +90,43 @@ async function fetchCouponFeed(extraParams = {}) {
     timeout: 20000,
   });
 
-  const $ = cheerio.load(resp.data, { xmlMode: true });
-  const total = $('TotalMatches').text();
-  console.log(`[Rakuten] ${total || '?'} cupons disponíveis`);
+  // Parser direto via regex — evita conflito do cheerio com tag <link>
+  const xml = resp.data;
+
+  const total = xml.match(/<TotalMatches>(\d+)<\/TotalMatches>/)?.[1] || '0';
+  console.log(`[Rakuten] ${total} cupons disponíveis`);
 
   const coupons = [];
-  // XML usa <link> como elemento de cada promoção (não <coupon>)
-  $('link').each((_, el) => {
+
+  // Extrai cada bloco <link>...</link>
+  const linkBlocks = [...xml.matchAll(/<link[^>]*>([\s\S]*?)<\/link>/g)];
+
+  for (const block of linkBlocks) {
     try {
-      const $el = $(el);
-      const description = $el.find('offerdescription').text().trim();
-      const clickUrl    = $el.find('clickurl').text().trim();
-      if (!description || !clickUrl) return;
+      const xml_block = block[1];
+
+      const get = (tag) => {
+        const m = xml_block.match(new RegExp(`<${tag}[^>]*>([^<]*)<\/${tag}>`));
+        return m ? m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim() : '';
+      };
+
+      const description = get('offerdescription');
+      const clickUrl    = get('clickurl');
+      if (!description || !clickUrl) continue;
 
       coupons.push({
-        mid:          $el.find('advertiserid').text().trim(),
-        merchantName: $el.find('advertisername').text().trim(),
+        mid:          get('advertiserid'),
+        merchantName: get('advertisername'),
         title:        description,
-        productName:  '',
         clickUrl,
         imageUrl:     null,
-        couponCode:   $el.find('couponcode').text().trim() || null,
-        discountType: $el.find('promotiontype').text().trim(),
-        discount:     null,
-        salePrice:    null,
-        retailPrice:  null,
-        category:     $el.find('category').first().text().trim(),
-        endDate:      $el.find('offerenddate').text().trim(),
-        promoType:    $el.find('promotiontype').text().trim(),
+        couponCode:   get('couponcode') || null,
+        discountType: get('promotiontype'),
+        category:     get('category'),
+        endDate:      get('offerenddate'),
       });
     } catch {}
-  });
+  }
 
   return coupons;
 }
