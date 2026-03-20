@@ -89,6 +89,17 @@ async function runScrapeAndPost() {
     updateSourceRun('shopee_kw', 0);
   }
 
+  // ── Rakuten ────────────────────────────────────────────────
+  if (isSourceActive('rakuten')) {
+    try {
+      const r = await scrapeRakutenOffers(cfg.mlAffiliateTag, cfg.minDiscount);
+      console.log(`[Scheduler] Rakuten: ${r.length}`);
+      allPromos.push(...r);
+      updateSourceRun('rakuten', r.length);
+    } catch (err) { console.error('[Scheduler] Rakuten erro:', err.message); }
+    await delay(1500);
+  }
+
   // ── Pelando ────────────────────────────────────────────────
   if (isSourceActive('pelando_hot')) {
     try {
