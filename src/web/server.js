@@ -196,6 +196,40 @@ app.patch('/api/sources/:id/toggle', (req, res) => {
   res.json({ ok: true });
 });
 
+// QR Code WhatsApp
+app.get('/api/whatsapp/qrcode', async (req, res) => {
+  const instanceId = process.env.WAPI_INSTANCE_ID;
+  const token = process.env.WAPI_TOKEN;
+  if (!instanceId || !token) return res.status(400).json({ error: 'WAPI_INSTANCE_ID ou WAPI_TOKEN não configurados' });
+  try {
+    const axios = require('axios');
+    const resp = await axios.get(
+      `https://api.w-api.app/v1/instance/qr-code?instanceId=${instanceId}&image=enable`,
+      { headers: { 'Authorization': 'Bearer ' + token }, timeout: 15000 }
+    );
+    res.json(resp.data);
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// Status da instância WhatsApp
+app.get('/api/whatsapp/status', async (req, res) => {
+  const instanceId = process.env.WAPI_INSTANCE_ID;
+  const token = process.env.WAPI_TOKEN;
+  if (!instanceId || !token) return res.json({ connected: false, error: 'Não configurado' });
+  try {
+    const axios = require('axios');
+    const resp = await axios.get(
+      `https://api.w-api.app/v1/instance/info?instanceId=${instanceId}`,
+      { headers: { 'Authorization': 'Bearer ' + token }, timeout: 10000 }
+    );
+    res.json({ connected: true, data: resp.data });
+  } catch (err) {
+    res.json({ connected: false, error: err.response?.data?.message || err.message });
+  }
+});
+
 // Testar WhatsApp
 app.get('/api/whatsapp/test', async (req, res) => {
   const { testConnection } = require('../bot/whatsapp');
@@ -409,6 +443,7 @@ const HTML_DASHBOARD = `<!DOCTYPE html>
       <div class="nav-item" onclick="navigate('channels', this)"><span class="nav-icon">◉</span> Canais</div>
       <div class="nav-item" onclick="navigate('sources', this)"><span class="nav-icon">◍</span> Fontes</div>
       <div class="nav-label">Sistema</div>
+      <div class="nav-item" onclick="navigate('whatsapp', this)"><span class="nav-icon">◌</span> WhatsApp</div>
       <div class="nav-item" onclick="navigate('settings', this)"><span class="nav-icon">◐</span> Configuração</div>
     </div>
   </div>
@@ -487,6 +522,7 @@ async function render(page) {
   else if (page === 'history') await renderHistory();
   else if (page === 'channels') await renderChannels();
   else if (page === 'sources') await renderSources();
+  else if (page === 'whatsapp') await renderWhatsApp();
   else if (page === 'settings') renderSettings();
 }
 
@@ -717,6 +753,99 @@ async function toggleSrc(id, toggleEl) {
   badge.className = 'badge ' + (isOn ? 'badge-green' : 'badge-gray');
   badge.textContent = isOn ? 'ativo' : 'inativo';
   toast(isOn ? 'Fonte ativada' : 'Fonte desativada', 'success');
+}
+
+// ─── WHATSAPP ─────────────────────────────────────────────────
+async function renderWhatsApp() {
+  document.getElementById('content').innerHTML = `
+    <div style="max-width:480px">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px">Status da conexão</div>
+        <div id="wa-status" style="font-size:12px;color:var(--muted)">Verificando...</div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn btn-green" onclick="loadQR(this)">📱 Gerar QR Code</button>
+          <button class="btn" onclick="checkWaStatus()">↻ Verificar status</button>
+        </div>
+      </div>
+      <div id="qr-box" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Escaneie com seu WhatsApp</div>
+        <div id="qr-content" style="min-height:200px;display:flex;align-items:center;justify-content:center">
+          <div class="loader"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px">Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo</div>
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
+          <button class="btn" onclick="loadQR(this)">↻ Atualizar QR</button>
+          <button class="btn" onclick="document.getElementById('qr-box').style.display='none'">Fechar</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">Canais configurados</div>
+        <div style="font-size:12px;color:var(--muted);line-height:2;font-family:var(--mono)" id="wa-channels">
+          ${(process.env?.WAPI_CHANNELS || 'Nenhum canal configurado — adicione WAPI_CHANNELS no Railway').split(',').filter(Boolean).map(c => '<div>' + c.trim() + '</div>').join('') || 'Nenhum canal configurado'}
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">Como conectar</div>
+        <ol style="font-size:12px;color:var(--muted);padding-left:16px;line-height:2.2">
+          <li>Clique em <strong style="color:var(--text)">Gerar QR Code</strong></li>
+          <li>Abra o WhatsApp no celular</li>
+          <li>Toque em <strong style="color:var(--text)">⋮ → Dispositivos conectados</strong></li>
+          <li>Toque em <strong style="color:var(--text)">Conectar dispositivo</strong></li>
+          <li>Escaneie o QR code que aparece acima</li>
+          <li>Aguarde a confirmação de conexão</li>
+        </ol>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+          Variáveis necessárias no Railway:
+          <code style="color:var(--accent);display:block;margin-top:4px">WAPI_INSTANCE_ID=sua_instance_id</code>
+          <code style="color:var(--accent);display:block">WAPI_TOKEN=seu_token</code>
+          <code style="color:var(--accent);display:block">WAPI_CHANNELS=5511999999999</code>
+        </div>
+      </div>
+    </div>
+  \`;
+  checkWaStatus();
+}
+
+async function loadQR(btn) {
+  btn.innerHTML = '<div class="loader"></div>';
+  btn.disabled = true;
+  document.getElementById('qr-box').style.display = '';
+  document.getElementById('qr-content').innerHTML = '<div class="loader"></div>';
+
+  try {
+    const r = await fetch('/api/whatsapp/qrcode').then(res => res.json());
+    if (r.error) {
+      document.getElementById('qr-content').innerHTML = \`<div style="color:var(--danger);font-size:13px">\${r.error}</div>\`;
+    } else if (r.base64 || r.qrcode || r.image || r.data) {
+      const img = r.base64 || r.qrcode || r.image || r.data;
+      const src = img.startsWith('data:') ? img : 'data:image/png;base64,' + img;
+      document.getElementById('qr-content').innerHTML = \`<img src="\${src}" style="max-width:240px;border-radius:8px">\`;
+    } else {
+      document.getElementById('qr-content').innerHTML = \`<pre style="font-size:10px;color:var(--text);">\${JSON.stringify(r, null, 2)}</pre>\`;
+    }
+  } catch (err) {
+    document.getElementById('qr-content').innerHTML = \`<div style="color:var(--danger);font-size:13px">Erro: \${err.message}</div>\`;
+  }
+
+  btn.innerHTML = '📱 Gerar QR Code';
+  btn.disabled = false;
+}
+
+async function checkWaStatus() {
+  const el = document.getElementById('wa-status');
+  if (!el) return;
+  el.textContent = 'Verificando...';
+  try {
+    const r = await fetch('/api/whatsapp/status').then(res => res.json());
+    if (r.connected) {
+      const name = r.data?.name || r.data?.pushName || r.data?.phone || 'conectado';
+      el.innerHTML = \`<span style="color:var(--accent)">✓ Conectado — \${name}</span>\`;
+    } else {
+      el.innerHTML = \`<span style="color:var(--warn)">✗ Desconectado\${r.error ? ' — ' + r.error : ''}</span>\`;
+    }
+  } catch {
+    el.innerHTML = '<span style="color:var(--danger)">Erro ao verificar</span>';
+  }
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────

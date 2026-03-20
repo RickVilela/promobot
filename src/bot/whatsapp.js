@@ -171,7 +171,7 @@ async function testConnection() {
   try {
     const instanceId = process.env.WAPI_INSTANCE_ID;
     const resp = await axios.get(
-      `${getBaseUrl()}/instance/info?instanceId=${instanceId}`,
+      `${getBaseUrl()}/instance/status-instance?instanceId=${instanceId}`,
       { headers: getHeaders(), timeout: 8000 }
     );
     return { ok: true, instance: resp.data };
