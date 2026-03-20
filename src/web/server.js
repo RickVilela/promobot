@@ -203,13 +203,31 @@ app.get('/api/whatsapp/qrcode', async (req, res) => {
   if (!instanceId || !token) return res.status(400).json({ error: 'WAPI_INSTANCE_ID ou WAPI_TOKEN não configurados' });
   try {
     const axios = require('axios');
+    // image=enable faz a W-API retornar o QR como imagem base64
     const resp = await axios.get(
       `https://api.w-api.app/v1/instance/qr-code?instanceId=${instanceId}&image=enable`,
-      { headers: { 'Authorization': 'Bearer ' + token }, timeout: 15000 }
+      {
+        headers: { 'Authorization': 'Bearer ' + token },
+        responseType: 'arraybuffer', // recebe a imagem como buffer binário
+        timeout: 15000,
+      }
     );
-    res.json(resp.data);
+    // Converte para base64 e retorna como data URI
+    const contentType = resp.headers['content-type'] || 'image/png';
+    const base64 = Buffer.from(resp.data).toString('base64');
+    res.json({ base64: `data:${contentType};base64,${base64}` });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.message || err.message });
+    // Fallback: tenta como JSON (caso a API retorne JSON com o base64)
+    try {
+      const axios = require('axios');
+      const resp2 = await axios.get(
+        `https://api.w-api.app/v1/instance/qr-code?instanceId=${instanceId}&image=enable`,
+        { headers: { 'Authorization': 'Bearer ' + token }, timeout: 15000 }
+      );
+      res.json(resp2.data);
+    } catch (err2) {
+      res.status(500).json({ error: err.response?.data?.message || err.message });
+    }
   }
 });
 
@@ -230,7 +248,8 @@ app.get('/api/whatsapp/status', async (req, res) => {
       `https://api.w-api.app/v1/instance/status-instance?instanceId=${instanceId}`,
       { headers: { 'Authorization': 'Bearer ' + token }, timeout: 10000 }
     );
-    res.json({ connected: true, data: resp.data });
+    // Retorna: { instanceId, connected: true/false }
+    res.json({ connected: resp.data.connected === true, data: resp.data });
   } catch (err) {
     res.json({ connected: false, error: err.response?.data?.message || err.message });
   }
@@ -816,12 +835,16 @@ async function loadQR(btn) {
     const r = await fetch('/api/whatsapp/qrcode').then(res => res.json());
     if (r.error) {
       document.getElementById('qr-content').innerHTML = \`<div style="color:var(--danger);font-size:13px">\${r.error}</div>\`;
-    } else if (r.base64 || r.qrcode || r.image || r.data) {
-      const img = r.base64 || r.qrcode || r.image || r.data;
+    } else if (r.base64) {
+      // data URI completo retornado pelo servidor
+      document.getElementById('qr-content').innerHTML = \`<img src="\${r.base64}" style="max-width:240px;border-radius:8px">\`;
+    } else if (r.qrcode || r.qr || r.image || r.value) {
+      const img = r.qrcode || r.qr || r.image || r.value;
       const src = img.startsWith('data:') ? img : 'data:image/png;base64,' + img;
       document.getElementById('qr-content').innerHTML = \`<img src="\${src}" style="max-width:240px;border-radius:8px">\`;
     } else {
-      document.getElementById('qr-content').innerHTML = \`<pre style="font-size:10px;color:var(--text);">\${JSON.stringify(r, null, 2)}</pre>\`;
+      // Mostra JSON bruto para debug
+      document.getElementById('qr-content').innerHTML = \`<pre style="font-size:10px;color:var(--text);text-align:left">\${JSON.stringify(r, null, 2).substring(0, 500)}</pre>\`;
     }
   } catch (err) {
     document.getElementById('qr-content').innerHTML = \`<div style="color:var(--danger);font-size:13px">Erro: \${err.message}</div>\`;
@@ -851,8 +874,8 @@ async function checkWaStatus() {
   try {
     const r = await fetch('/api/whatsapp/status').then(res => res.json());
     if (r.connected) {
-      const name = r.data?.name || r.data?.pushName || r.data?.phone || 'conectado';
-      el.innerHTML = \`<span style="color:var(--accent)">✓ Conectado — \${name}</span>\`;
+      const id = r.data?.instanceId || '';
+      el.innerHTML = \`<span style="color:var(--accent)">✓ Conectado\${id ? ' — ' + id : ''}</span>\`;
     } else {
       el.innerHTML = \`<span style="color:var(--warn)">✗ Desconectado\${r.error ? ' — ' + r.error : ''}</span>\`;
     }
