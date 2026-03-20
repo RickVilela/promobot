@@ -96,12 +96,13 @@ function initSchema() {
 function savePromotion(promo) {
   const stmt = getDb().prepare(`
     INSERT OR IGNORE INTO promotions 
-      (ml_id, title, original_price, sale_price, discount_percent, image_url, original_url, affiliate_url, category, seller, source)
+      (ml_id, title, original_price, sale_price, discount_percent, image_url, original_url, affiliate_url, category, seller, source, extra_info)
     VALUES 
-      (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller, @source)
+      (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller, @source, @extra_info)
   `);
   const sanitized = {
     source: 'mercadolivre',
+    extra_info: null,
     ...promo,
     sale_price: promo.sale_price ?? 0,
     original_price: promo.original_price ?? null,
