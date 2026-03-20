@@ -74,15 +74,9 @@ async function fetchCouponFeed(extraParams = {}) {
     return [];
   }
 
-  const params = new URLSearchParams({
-    token:          wsToken,
-    promotiontype:  'Sale|Coupon|Clearance|Liquidação|Cupom',
-    resultsperpage: '500',
-    pagenumber:     '1',
-    ...extraParams,
-  });
-
-  const url = `https://couponfeed.linksynergy.com/coupon?${params}`;
+  // Monta URL manualmente para evitar encoding de | e caracteres especiais
+  let url = `https://couponfeed.linksynergy.com/coupon?token=${wsToken}&resultsperpage=500&pagenumber=1`;
+  if (extraParams.category) url += `&category=${extraParams.category}`;
   console.log('[Rakuten] Buscando Coupon Feed...');
 
   const resp = await axios.get(url, {
