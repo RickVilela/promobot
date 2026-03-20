@@ -779,7 +779,7 @@ async function renderWhatsApp() {
       '<div style="font-size:11px;color:var(--muted);margin-top:10px">WhatsApp → Dispositivos conectados → Conectar dispositivo</div>' +
       '<div style="margin-top:10px;display:flex;gap:8px;justify-content:center">' +
         '<button class="btn" onclick="loadQR(this)">↻ Atualizar QR</button>' +
-        '<button class="btn" onclick="document.getElementById(\'qr-box\').style.display=\'none\'">Fechar</button>' +
+        '<button class="btn" onclick="document.getElementById(&quot;qr-box&quot;).style.display=&quot;&quot;">Fechar</button>' +
       '</div>' +
     '</div>' +
     '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">' +
