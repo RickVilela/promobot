@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PromoBot</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo">
+      <div class="logo-title">⚡ PromoBot</div>
+      <div class="logo-sub">rakuten + shopee + telegram</div>
+    </div>
+    <div class="nav">
+      <div class="nav-label">Menu</div>
+      <div class="nav-item active" onclick="navigate('dashboard',this)"><span class="nav-icon">◈</span> Dashboard <span class="status-dot" id="running-dot" style="display:none"></span></div>
+      <div class="nav-item" onclick="navigate('pending',this)"><span class="nav-icon">◷</span> Pendentes <span id="pending-count" style="margin-left:auto;font-size:10px;"></span></div>
+      <div class="nav-item" onclick="navigate('history',this)"><span class="nav-icon">◎</span> Histórico</div>
+      <div class="nav-item" onclick="navigate('channels',this)"><span class="nav-icon">◉</span> Canais</div>
+      <div class="nav-item" onclick="navigate('sources',this)"><span class="nav-icon">◍</span> Fontes</div>
+      <div class="nav-item" onclick="navigate('manual',this)"><span class="nav-icon">✚</span> Nova promo</div>
+      <div class="nav-label">Sistema</div>
+      <div class="nav-item" onclick="navigate('whatsapp',this)"><span class="nav-icon">◌</span> WhatsApp</div>
+      <div class="nav-item" onclick="navigate('settings',this)"><span class="nav-icon">◐</span> Configuração</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div class="page-title" id="page-title">Dashboard</div>
+      <div class="btn-row">
+        <div class="status-bar">
+          <div class="status-indicator">
+            <div class="indicator-dot" id="status-dot"></div>
+            <span id="status-text">verificando...</span>
+          </div>
+        </div>
+        <button class="btn" onclick="forceScrape(this)"><span>↻</span> Buscar agora</button>
+      </div>
+    </div>
+    <div class="content" id="content">
+      <div class="empty"><div class="loader"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Adicionar Canal -->
+<div class="modal-overlay" id="channel-modal">
+  <div class="modal">
+    <div class="modal-title">Adicionar canal Telegram</div>
+    <div class="field"><label>ID do Canal</label><input type="text" id="ch-id" placeholder="-1001234567890" /></div>
+    <div class="field"><label>Nome do canal</label><input type="text" id="ch-name" placeholder="Ex: Promos Tech BR" /></div>
+    <div class="field"><label>Filtro (opcional)</label><input type="text" id="ch-filter" placeholder="smartphone,notebook,tv" /></div>
+    <div class="btn-row" style="justify-content:flex-end;margin-top:6px;">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-green" onclick="addChannel()">Salvar canal</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
