@@ -13,7 +13,7 @@ const { markAsPosted } = require('../db/database');
 const app = express();
 app.use(express.json());
 // Serve static files (index.html, app.js, style.css) from /public
-app.use(express.static(path.join(__dirname, '../../public')));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // ─── ML OAUTH ─────────────────────────────────────────────────
 app.get('/ml/auth', (req, res) => {
