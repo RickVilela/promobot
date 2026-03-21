@@ -112,9 +112,10 @@ async function sendImage(phone, imageUrl, caption) {
   const url = `${getBaseUrl()}/message/send-image?instanceId=${instanceId}`;
 
   const resp = await axios.post(url, {
-    phone:   formatPhone(phone),
-    image:   imageUrl,
-    caption: caption,
+    phone:        formatPhone(phone),
+    image:        imageUrl,
+    caption:      caption,
+    delayMessage: 1,
   }, { headers: getHeaders(), timeout: 15000 });
 
   return resp.data;
@@ -140,15 +141,17 @@ async function sendPromotion(promo) {
           await sendImage(channel, promo.image_url, message);
           console.log(`[WhatsApp] ✓ Imagem postada em ${channel}: ${promo.title.substring(0, 40)}`);
           results.push({ channel, success: true, type: 'image' });
-        } catch {
-          // Fallback para texto se imagem falhar
+        } catch (imgErr) {
+          const imgErrMsg = imgErr.response?.data?.message || imgErr.response?.data?.error || imgErr.message;
+          console.error(`[WhatsApp] Erro ao enviar imagem em ${channel}:`, imgErrMsg, '| image_url:', promo.image_url?.substring(0, 60));
+          // Fallback para texto
           await sendText(channel, message);
-          console.log(`[WhatsApp] ✓ Texto postado em ${channel}: ${promo.title.substring(0, 40)}`);
-          results.push({ channel, success: true, type: 'text' });
+          console.log(`[WhatsApp] ✓ Fallback texto em ${channel}`);
+          results.push({ channel, success: true, type: 'text_fallback', imageError: imgErrMsg });
         }
       } else {
         await sendText(channel, message);
-        console.log(`[WhatsApp] ✓ Postado em ${channel}: ${promo.title.substring(0, 40)}`);
+        console.log(`[WhatsApp] ✓ Texto postado em ${channel}: ${promo.title.substring(0, 40)}`);
         results.push({ channel, success: true, type: 'text' });
       }
 
