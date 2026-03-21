@@ -166,12 +166,20 @@ async function sendPromotion(promo) {
     try {
       if (promo.image_url) {
         try {
-          await sendImage(channel, promo.image_url, message);
-          console.log(`[WhatsApp] ✓ Imagem postada em ${channel}: ${promo.title.substring(0, 40)}`);
-          results.push({ channel, success: true, type: 'image' });
+          const imageData = await imageUrlToBase64(promo.image_url);
+          if (imageData) {
+            await sendImage(channel, imageData, message);
+            console.log(`[WhatsApp] ✓ Imagem postada em ${channel}: ${promo.title.substring(0, 40)}`);
+            results.push({ channel, success: true, type: 'image' });
+          } else {
+            // Formato não suportado (ex: webp) — envia só texto
+            await sendText(channel, message);
+            console.log(`[WhatsApp] ✓ Texto postado (imagem incompatível) em ${channel}`);
+            results.push({ channel, success: true, type: 'text_no_image' });
+          }
         } catch (imgErr) {
           const imgErrMsg = imgErr.response?.data?.message || imgErr.response?.data?.error || imgErr.message;
-          console.error(`[WhatsApp] Erro ao enviar imagem em ${channel}:`, imgErrMsg, '| image_url:', promo.image_url?.substring(0, 60));
+          console.error(`[WhatsApp] Erro ao enviar imagem em ${channel}:`, imgErrMsg);
           // Fallback para texto
           await sendText(channel, message);
           console.log(`[WhatsApp] ✓ Fallback texto em ${channel}`);
