@@ -106,17 +106,35 @@ async function sendText(phone, message) {
   return resp.data;
 }
 
-// Envia imagem com legenda
+// Converte URL de imagem para base64 (aceito pela W-API independente de extensão)
+async function imageUrlToBase64(imageUrl) {
+  const resp = await axios.get(imageUrl, {
+    responseType: 'arraybuffer',
+    timeout: 10000,
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+  const ct = resp.headers['content-type'] || 'image/jpeg';
+  const base64 = Buffer.from(resp.data).toString('base64');
+  return `data:${ct};base64,${base64}`;
+}
+
+// Envia imagem com legenda (suporta URL ou base64)
 async function sendImage(phone, imageUrl, caption) {
   const instanceId = process.env.WAPI_INSTANCE_ID;
   const url = `${getBaseUrl()}/message/send-image?instanceId=${instanceId}`;
 
+  // Converte para base64 para garantir compatibilidade com qualquer formato
+  let imageData = imageUrl;
+  if (!imageUrl.startsWith('data:')) {
+    imageData = await imageUrlToBase64(imageUrl);
+  }
+
   const resp = await axios.post(url, {
     phone:        formatPhone(phone),
-    image:        imageUrl,
+    image:        imageData,
     caption:      caption,
     delayMessage: 1,
-  }, { headers: getHeaders(), timeout: 15000 });
+  }, { headers: getHeaders(), timeout: 20000 });
 
   return resp.data;
 }
@@ -174,7 +192,7 @@ async function testConnection() {
   try {
     const instanceId = process.env.WAPI_INSTANCE_ID;
     const resp = await axios.get(
-      `${getBaseUrl()}/instance/status-instance?instanceId=${instanceId}`,
+      `${getBaseUrl()}/instance/info?instanceId=${instanceId}`,
       { headers: getHeaders(), timeout: 8000 }
     );
     return { ok: true, instance: resp.data };
