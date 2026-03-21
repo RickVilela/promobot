@@ -106,16 +106,26 @@ async function sendText(phone, message) {
   return resp.data;
 }
 
-// Converte URL de imagem para base64 (aceito pela W-API independente de extensão)
+// Baixa imagem e converte para JPEG base64 (W-API aceita jpeg/png base64)
+// Converte qualquer formato (webp, gif, etc) para JPEG usando sharp
 async function imageUrlToBase64(imageUrl) {
   const resp = await axios.get(imageUrl, {
     responseType: 'arraybuffer',
     timeout: 10000,
     headers: { 'User-Agent': 'Mozilla/5.0' },
   });
-  const ct = resp.headers['content-type'] || 'image/jpeg';
-  const base64 = Buffer.from(resp.data).toString('base64');
-  return `data:${ct};base64,${base64}`;
+
+  let buffer = Buffer.from(resp.data);
+
+  // Converte para JPEG independente do formato original (webp, png, gif...)
+  try {
+    const sharp = require('sharp');
+    buffer = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+  } catch (sharpErr) {
+    console.warn('[WhatsApp] sharp nao disponivel, usando buffer original:', sharpErr.message);
+  }
+
+  return 'data:image/jpeg;base64,' + buffer.toString('base64');
 }
 
 // Envia imagem com legenda (suporta URL ou base64)
