@@ -850,34 +850,31 @@ function renderManual() {
 }
 
 function previewManual() {
-  const title    = document.getElementById('m-title').value.trim();
-  const url      = document.getElementById('m-url').value.trim();
-  const sale     = parseFloat(document.getElementById('m-sale').value) || 0;
-  const original = parseFloat(document.getElementById('m-original').value) || 0;
-  const seller   = document.getElementById('m-seller').value.trim() || 'loja parceira';
-  const coupon   = document.getElementById('m-coupon').value.trim();
-
-  if (!title) { toast('Preencha o título', 'error'); return; }
-
-  let discount = 0;
+  var title    = document.getElementById('m-title').value.trim();
+  var url      = document.getElementById('m-url').value.trim() || 'https://...';
+  var sale     = parseFloat(document.getElementById('m-sale').value) || 0;
+  var original = parseFloat(document.getElementById('m-original').value) || 0;
+  var seller   = document.getElementById('m-seller').value.trim() || 'loja parceira';
+  var coupon   = document.getElementById('m-coupon').value.trim();
+  if (!title) { toast('Preencha o titulo', 'error'); return; }
+  var discount = 0;
   if (original > sale && sale > 0) discount = Math.round(((original - sale) / original) * 100);
-
-  let msg = '';
-  msg += (discount >= 50 ? '🚨🔥' : discount >= 30 ? '💥' : '🔥') + ' ' + title + '\n\n';
+  var fire = discount >= 50 ? '🚨🔥' : discount >= 30 ? '💥' : '🔥';
+  var nl = '\n';
+  var msg = fire + ' ' + title + nl + nl;
   if (original && sale) {
-    msg += '💰 De: R$ ' + original.toFixed(2).replace('.',',') + '\n';
+    msg += '💰 De: R$ ' + original.toFixed(2).replace('.',',') + nl;
     msg += '🏷 Por: R$ ' + sale.toFixed(2).replace('.',',');
     if (discount) msg += '  ✅ -' + discount + '% OFF';
-    msg += '\n\n';
+    msg += nl + nl;
   } else if (discount) {
-    msg += '✅ ' + discount + '% de desconto!\n\n';
+    msg += '✅ ' + discount + '% de desconto!' + nl + nl;
   }
-  if (coupon) msg += '🎟 Cupom: ' + coupon + '\n\n';
-  msg += '━━━━━━━━━━━━━━━━━━\n';
-  msg += '🛒 Comprar na ' + seller + ':\n' + (url || 'https://...') + '\n\n';
+  if (coupon) msg += '🎟 Cupom: ' + coupon + nl + nl;
+  msg += '━━━━━━━━━━━━━━━━━━' + nl;
+  msg += '🛒 Comprar na ' + seller + ':' + nl + url + nl + nl;
   msg += '⏳ Oferta por tempo limitado!';
-
-  const box = document.getElementById('m-preview');
+  var box = document.getElementById('m-preview');
   box.style.display = '';
   box.textContent = msg;
 }
