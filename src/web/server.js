@@ -7,8 +7,21 @@ const {
   getSources, toggleSource,
 } = require('../db/database');
 const { runScrapeAndPost, getStatus } = require('../scheduler');
-const { sendPromotion, testConnection, buildMessage } = require('../bot/telegram');
+const { sendPromotion: sendTelegram, testConnection, buildMessage } = require('../bot/telegram');
+const { sendPromotion: sendWhatsApp, isConfigured: waConfigured } = require('../bot/whatsapp');
 const { markAsPosted } = require('../db/database');
+
+// Envia para todos os canais configurados (Telegram + WhatsApp)
+async function sendPromotion(promo) {
+  const results = {};
+  const tg = await sendTelegram(promo);
+  results.telegram = tg;
+  if (waConfigured()) {
+    const wa = await sendWhatsApp(promo);
+    results.whatsapp = wa;
+  }
+  return { success: !!(results.telegram && results.telegram.success) || !!(results.whatsapp && results.whatsapp.success), results };
+}
 
 const app = express();
 app.use(express.json());

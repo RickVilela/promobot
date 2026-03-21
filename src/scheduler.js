@@ -182,4 +182,4 @@ function stopScheduler() { if (cronJob) cronJob.stop(); }
 function updateNextRun(m) { nextRunAt = new Date(Date.now() + m * 60 * 1000); }
 function getStatus() { return { isRunning, lastRunAt, nextRunAt, config: getConfig() }; }
 
-module.exports = { startScheduler, stopScheduler, runScrapeAndPost, getStatus };
+module.exports = { startScheduler, stopScheduler, runScrapeAndPost, getStatus, sendPromotion };
