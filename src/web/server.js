@@ -860,7 +860,7 @@ function previewManual() {
   var discount = 0;
   if (original > sale && sale > 0) discount = Math.round(((original - sale) / original) * 100);
   var fire = discount >= 50 ? '🚨🔥' : discount >= 30 ? '💥' : '🔥';
-  var nl = '\n';
+  var nl = ' ';
   var msg = fire + ' ' + title + nl + nl;
   if (original && sale) {
     msg += '💰 De: R$ ' + original.toFixed(2).replace('.',',') + nl;
