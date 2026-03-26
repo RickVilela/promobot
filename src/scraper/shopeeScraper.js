@@ -36,43 +36,52 @@ async function fetchShopeeGraphQL(query, variables = {}) {
 async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
   console.log('[Shopee] Buscando "Shopee Offers" (Ofertas Oficiais)...');
   
-  // QUERY CORRIGIDA: No ShopeeOfferV2, os campos de produto costumam 
-  // vir dentro de 'productInfo' ou com nomes diretos sem o 'itemId' (usa-id ou productId)
+  /**
+   * QUERY CORRIGIDA: 
+   * No endpoint ShopeeOfferV2, os dados detalhados do item 
+   * ficam dentro do objeto 'productInfo'.
+   */
   const query = `query getShopeeOffers($page: Int, $limit: Int) {
     shopeeOfferV2(page: $page, limit: $limit) {
       nodes {
-        id                # ID da Oferta
-        productName
-        imageUrl
-        offerLink
-        price             # Preço atual
-        originalPrice     # Preço sem desconto
-        discount          # Ex: "30%"
-        shopName
+        productInfo {
+          itemId
+          productName
+          imageUrl
+          offerLink
+          price
+          originalPrice
+          discount
+          shopName
+        }
       }
     }
   }`;
 
   const data = await fetchShopeeGraphQL(query, { page: 1, limit: 50 });
-  const items = data?.shopeeOfferV2?.nodes || [];
+  const nodes = data?.shopeeOfferV2?.nodes || [];
   
   const results = [];
-  for (const item of items) {
+  for (const node of nodes) {
+    // Extraímos o produto do sub-objeto 'productInfo'
+    const item = node.productInfo;
+    if (!item) continue;
+
     const salePrice = parseFloat(item.price);
     let originalPrice = parseFloat(item.originalPrice || 0);
     
-    // Extração do desconto
+    // Extração do desconto (ex: "30%" -> 30)
     let discountPercent = item.discount ? parseInt(String(item.discount).replace(/[^0-9]/g, '')) : 0;
 
-    // Se não tem preço original mas tem %, calculamos
+    // Lógica de recuperação de preço original
     if ((!originalPrice || originalPrice <= salePrice) && discountPercent > 0) {
       originalPrice = salePrice / (1 - (discountPercent / 100));
     }
 
-    // Se o desconto atingir o mínimo, adicionamos ao resultado
+    // Filtro de desconto mínimo
     if (discountPercent >= minDiscount && salePrice > 0) {
       results.push({
-        ml_id: `SHOPEE_OFFER_${item.id}`, // Usamos o 'id' retornado pela oferta
+        ml_id: `SHOPEE_OFFER_${item.itemId}`,
         title: item.productName,
         original_price: originalPrice > salePrice ? originalPrice : null,
         sale_price: salePrice,
