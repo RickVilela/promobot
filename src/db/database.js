@@ -93,6 +93,7 @@ function initSchema() {
 }
 
 // Promoções
+// Substitua sua função savePromotion por esta versão protegida:
 function savePromotion(promo) {
   const stmt = getDb().prepare(`
     INSERT OR IGNORE INTO promotions 
@@ -100,15 +101,34 @@ function savePromotion(promo) {
     VALUES 
       (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller, @source, @extra_info)
   `);
+
   const sanitized = {
+    // Valores padrão para evitar erros de NOT NULL no SQLite
     source: 'mercadolivre',
     extra_info: null,
+    category: 'geral',
+    seller: 'Desconhecido',
+    image_url: null,
+    
     ...promo,
-    sale_price: promo.sale_price ?? 0,
-    original_price: promo.original_price ?? null,
-    discount_percent: promo.discount_percent ?? null,
+
+    // Sanitização crítica: garante que campos obrigatórios nunca sejam null/undefined
+    title: (promo.title || 'Produto sem título').substring(0, 255),
+    original_url: promo.original_url || promo.affiliate_url || '#',
+    affiliate_url: promo.affiliate_url || promo.original_url || '#',
+    
+    // Garantia para números
+    sale_price: parseFloat(promo.sale_price) || 0,
+    original_price: promo.original_price ? parseFloat(promo.original_price) : null,
+    discount_percent: promo.discount_percent ? parseInt(promo.discount_percent) : 0,
   };
-  return stmt.run(sanitized).changes > 0;
+
+  try {
+    return stmt.run(sanitized).changes > 0;
+  } catch (err) {
+    console.error(`[DB] Erro ao salvar promoção ${promo.ml_id}:`, err.message);
+    return false;
+  }
 }
 
 function getPendingPromotions() {
