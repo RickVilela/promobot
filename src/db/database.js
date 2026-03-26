@@ -118,8 +118,8 @@ function savePromotion(promo) {
     affiliate_url: promo.affiliate_url || promo.original_url || '#',
     
     // Garantia para números
-    original_price: (promo.original_price > promo.sale_price) ? promo.original_price : null,
-    sale_price: parseFloat(promo.sale_price) || 0,
+    sale_price: Number(parseFloat(promo.sale_price).toFixed(2)),
+    original_price: promo.original_price ? Number(parseFloat(promo.original_price).toFixed(2)) : null,
     discount_percent: promo.discount_percent || 0,
   };
 

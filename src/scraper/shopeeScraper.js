@@ -27,26 +27,25 @@ async function fetchShopeeGraphQL(query, variables = {}) {
 }
 
 // ESTA É A FUNÇÃO QUE ESTAVA FALTANDO
-async function scrapeShopeeOffers(affiliateTag, minDiscount = 0) {
-  console.log('[Shopee] Buscando ofertas gerais...');
+async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
   const query = `query getProductList($page: Int, $limit: Int) {
-    productOfferV2(page: $page, limit: $limit, sortType: 2) {
+    productOfferV2(page: $page, limit: $limit, sortType: 1) {
       nodes {
         itemId
         productName
         imageUrl
         offerLink
-        priceMin      # Preço com desconto (venda)
-        originalPrice # Preço sem desconto (de)
-        discount      # Porcentagem de desconto
+        priceMin        # Preço Atual (com desconto)
+        originalPrice   # Preço de Tabela (pode vir nulo)
+        discount        # % de desconto da Shopee
         shopName
+        sales           # Útil para filtrar apenas o que vende muito
       }
     }
   }`;
 
   const data = await fetchShopeeGraphQL(query, { page: 1, limit: 50 });
-  const items = data?.productOfferV2?.nodes || [];
-  return processShopeeItems(items, affiliateTag, minDiscount, 'shopee_ofertas');
+  return processShopeeItems(data?.productOfferV2?.nodes || [], affiliateTag, minDiscount, 'Ofertas');
 }
 
 async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 0) {
@@ -69,22 +68,28 @@ function processShopeeItems(items, affiliateTag, minDiscount, category) {
 
   for (const item of items) {
     const salePrice = parseFloat(item.priceMin);
-    const originalPrice = parseFloat(item.originalPrice || item.priceMin);
-    
-    // Calcula o desconto real se a API não mandar pronto
-    let discountPercent = item.discount ? parseInt(item.discount) : 0;
-    if (discountPercent === 0 && originalPrice > salePrice) {
-      discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
+    // Se originalPrice for nulo ou igual ao salePrice, tentamos inferir pelo campo discount
+    let originalPrice = parseFloat(item.originalPrice);
+    let discountPercent = item.discount ? parseInt(item.discount.replace('%', '')) : 0;
+
+    // Se a API não mandou originalPrice mas mandou discount, calculamos o reverso:
+    if ((!originalPrice || originalPrice <= salePrice) && discountPercent > 0) {
+      originalPrice = salePrice / (1 - (discountPercent / 100));
     }
 
-    // REGRA DE OURO: Só adiciona se houver desconto real e atingir o mínimo
-    if (salePrice < originalPrice && discountPercent >= minDiscount) {
+    // Se ainda assim forem iguais, o produto não é uma "oferta" real de preço riscado
+    if (!originalPrice || originalPrice <= salePrice) continue;
+
+    // Recalcula desconto real para precisão
+    const realDiscount = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
+
+    if (realDiscount >= minDiscount) {
       results.push({
         ml_id: `SHOPEE_${item.itemId}`,
         title: item.productName,
         original_price: originalPrice,
         sale_price: salePrice,
-        discount_percent: discountPercent,
+        discount_percent: realDiscount,
         image_url: item.imageUrl,
         original_url: item.offerLink,
         affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
@@ -94,7 +99,6 @@ function processShopeeItems(items, affiliateTag, minDiscount, category) {
       });
     }
   }
-
   return results;
 }
 
