@@ -53,23 +53,45 @@ async function fetchShopeeGraphQL(query, variables = {}) {
 /**
  * Função principal para buscar ofertas gerais (usando um termo padrão).
  */
-async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
-  // A Shopee v2 exige um keyword ou categoria para retornar nodes.
-  // Usamos "oferta" ou "promocao" para filtrar itens com preço reduzido.
-  return scrapeShopeeKeyword("oferta", affiliateTag, minDiscount);
+/**
+ * Lista de termos focados em Casa e Eletrônicos
+ */
+const CATEGORIAS_RELEVANTES = [
+  "smartphone xiaomi", "iphone", "smart tv", "notebook", 
+  "fritadeira air fryer", "aspirador robo", "alexa echo dot",
+  "caixa de som bluetooth", "monitor gamer", "cafeteira expresso"
+];
+
+async function scrapeShopeeOffers(affiliateTag, minDiscount = 10) {
+  console.log('[Shopee] Iniciando busca por nichos relevantes (Casa e Eletrônicos)...');
+  
+  let allResults = [];
+  
+  // Sorteia 3 termos da lista para buscar a cada ciclo (para variar o conteúdo)
+  const termosParaBuscar = CATEGORIAS_RELEVANTES
+    .sort(() => 0.5 - Math.random())
+    .slice(0, 3);
+
+  for (const termo of termosParaBuscar) {
+    const produtos = await scrapeShopeeKeyword(termo, affiliateTag, minDiscount);
+    allResults = allResults.concat(produtos);
+  }
+
+  // Remove duplicados pelo itemId
+  const uniqueResults = Array.from(new Map(allResults.map(item => [item.ml_id, item])).values());
+
+  console.log(`[Shopee] Ciclo finalizado com ${uniqueResults.length} produtos de alta relevância.`);
+  return uniqueResults;
 }
 
-/**
- * Busca produtos por palavra-chave específica.
- */
 async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
-  console.log(`[Shopee] Buscando: "${keyword}" (Min Desc: ${minDiscount}%)`);
+  console.log(`[Shopee] Filtrando: "${keyword}"`);
 
   const query = `query getProductOffers($keyword: String, $page: Int, $limit: Int) {
     productOfferV2(
       keyword: $keyword,
       listType: 1, 
-      sortType: 5, 
+      sortType: 1,  # Mudado para 1 (Popularidade/Vendas) para evitar produtos estranhos
       page: $page, 
       limit: $limit
     ) {
@@ -84,46 +106,32 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
         priceDiscountRate
         shopName
       }
-      pageInfo {
-        page
-        limit
-        hasNextPage
-      }
     }
   }`;
 
-  const data = await fetchShopeeGraphQL(query, { keyword, page: 1, limit: 50 });
+  const data = await fetchShopeeGraphQL(query, { keyword, page: 1, limit: 20 });
   const items = data?.productOfferV2?.nodes || [];
   
   const results = [];
   for (const item of items) {
     const salePrice = parseFloat(item.priceMin || 0);
-    const maxPrice = parseFloat(item.priceMax || 0);
     
-    // 1. Pega o desconto vindo da API
-    let discountPercent = item.priceDiscountRate 
-      ? parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, '')) 
-      : 0;
+    // REGRA DE QUALIDADE: Ignora produtos menores que R$ 20,00 
+    // Isso remove capinhas de celular, cabos de R$ 2 e tranqueiras.
+    if (salePrice < 20.00) continue;
 
-    // 2. Lógica de Contingência: Se a API mandou desconto 0, mas o preço Max > Min, 
-    // calculamos o desconto real baseado na variação.
-    let originalPrice = (maxPrice > salePrice) ? maxPrice : null;
-    
+    let discountPercent = item.priceDiscountRate ? parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, '')) : 0;
+    let originalPrice = parseFloat(item.priceMax) > salePrice ? parseFloat(item.priceMax) : null;
+
     if (discountPercent === 0 && originalPrice) {
       discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
     }
 
-    // 3. Se ainda assim não temos preço original, mas temos a %, calculamos o valor "DE"
-    if (discountPercent > 0 && !originalPrice) {
-      originalPrice = salePrice / (1 - (discountPercent / 100));
-    }
-
-    // Filtro final de segurança
     if (salePrice > 0 && discountPercent >= minDiscount) {
       results.push({
         ml_id: `SHOPEE_${item.itemId}`,
         title: item.productName,
-        original_price: originalPrice > salePrice ? originalPrice : null,
+        original_price: originalPrice,
         sale_price: salePrice,
         discount_percent: discountPercent,
         image_url: item.imageUrl,
@@ -135,8 +143,6 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
       });
     }
   }
-
-  console.log(`[Shopee] ${results.length} produtos filtrados encontrados.`);
   return results;
 }
 
