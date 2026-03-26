@@ -7,13 +7,13 @@ const crypto = require('crypto');
 
 function getShopeeHeaders(appId, secret, body) {
   const timestamp = Math.floor(Date.now() / 1000);
-  const payload = appId + timestamp + JSON.stringify(body);
-  const sign = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  const payload = JSON.stringify(body);
+  // Formato correto: SHA256(AppId + Timestamp + Payload + Secret)
+  const signStr = appId + timestamp + payload + secret;
+  const signature = crypto.createHmac('sha256', secret).update(signStr).digest('hex');
   return {
     'Content-Type': 'application/json',
-    'Authorization': appId,
-    'Timestamp': String(timestamp),
-    'Sign': sign,
+    'Authorization': `SHA256 Credential=${appId}, Timestamp=${timestamp}, Signature=${signature}`,
   };
 }
 
