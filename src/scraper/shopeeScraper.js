@@ -21,84 +21,71 @@ async function fetchShopeeGraphQL(query, variables = {}) {
 
   try {
     const response = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', bodyPayload, { headers, timeout: 15000 });
-    if (response.data.errors) return null;
-    return response.data.data;
-  } catch (err) { return null; }
+    return response.data?.data;
+  } catch (err) {
+    console.error('[Shopee] Erro na rede:', err.message);
+    return null;
+  }
 }
 
-// ESTA É A FUNÇÃO QUE ESTAVA FALTANDO
-async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
+async function scrapeShopeeOffers(affiliateTag, minDiscount = 10) {
+  console.log('[Shopee] Buscando Ofertas do Dia (Maiores Comissões/Descontos)...');
+  
+  // Query otimizada para a lista geral de ofertas (V2)
   const query = `query getProductList($page: Int, $limit: Int) {
-    productOfferV2(page: $page, limit: $limit, sortType: 1) {
+    productOfferV2(page: $page, limit: $limit, sortType: 2) {
       nodes {
         itemId
         productName
         imageUrl
         offerLink
-        priceMin        # Preço Atual (com desconto)
-        originalPrice   # Preço de Tabela (pode vir nulo)
-        discount        # % de desconto da Shopee
+        priceMin
+        originalPrice
+        discount
         shopName
-        sales           # Útil para filtrar apenas o que vende muito
       }
     }
   }`;
 
   const data = await fetchShopeeGraphQL(query, { page: 1, limit: 50 });
-  return processShopeeItems(data?.productOfferV2?.nodes || [], affiliateTag, minDiscount, 'Ofertas');
-}
-
-async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 0) {
-  console.log(`[Shopee] Buscando keyword: ${keyword}`);
-  const query = `query getProductByKeyword($keyword: String, $page: Int, $limit: Int) {
-    productOfferV2(keyword: $keyword, page: $page, limit: $limit) {
-      nodes {
-        itemId productName imageUrl offerLink price priceMin priceMax shopName
-      }
-    }
-  }`;
-
-  const data = await fetchShopeeGraphQL(query, { keyword, page: 1, limit: 30 });
   const items = data?.productOfferV2?.nodes || [];
-  return processShopeeItems(items, affiliateTag, minDiscount, keyword);
-}
-
-function processShopeeItems(items, affiliateTag, minDiscount, category) {
+  
   const results = [];
-
   for (const item of items) {
     const salePrice = parseFloat(item.priceMin);
-    // Se originalPrice for nulo ou igual ao salePrice, tentamos inferir pelo campo discount
     let originalPrice = parseFloat(item.originalPrice);
-    let discountPercent = item.discount ? parseInt(item.discount.replace('%', '')) : 0;
+    
+    // Extrai o número do desconto (ex: "25%" -> 25)
+    let discountPercent = item.discount ? parseInt(String(item.discount).replace(/[^0-9]/g, '')) : 0;
 
-    // Se a API não mandou originalPrice mas mandou discount, calculamos o reverso:
+    // Se a API não mandou originalPrice mas mandou %, calculamos o valor "DE"
     if ((!originalPrice || originalPrice <= salePrice) && discountPercent > 0) {
       originalPrice = salePrice / (1 - (discountPercent / 100));
+    } 
+    // Se mandou originalPrice mas não mandou %, calculamos a %
+    else if (originalPrice > salePrice && discountPercent === 0) {
+      discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
     }
 
-    // Se ainda assim forem iguais, o produto não é uma "oferta" real de preço riscado
-    if (!originalPrice || originalPrice <= salePrice) continue;
-
-    // Recalcula desconto real para precisão
-    const realDiscount = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
-
-    if (realDiscount >= minDiscount) {
+    // Só aceita se houver um desconto real identificado
+    if (discountPercent >= minDiscount && salePrice > 0) {
       results.push({
         ml_id: `SHOPEE_${item.itemId}`,
         title: item.productName,
-        original_price: originalPrice,
+        original_price: originalPrice > salePrice ? originalPrice : null,
         sale_price: salePrice,
-        discount_percent: realDiscount,
+        discount_percent: discountPercent,
         image_url: item.imageUrl,
         original_url: item.offerLink,
         affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
-        category: category,
+        category: 'Ofertas do Dia',
         seller: item.shopName,
         source: 'shopee'
       });
     }
   }
+
+  console.log(`[Shopee] ${results.length} promoções filtradas.`);
   return results;
 }
 
@@ -111,5 +98,4 @@ function buildAffiliateUrl(url, subId) {
   } catch { return url; }
 }
 
-// IMPORTANTE: Exportar ambas as funções
-module.exports = { scrapeShopeeOffers, scrapeShopeeKeyword };
+module.exports = { scrapeShopeeOffers };

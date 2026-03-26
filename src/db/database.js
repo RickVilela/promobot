@@ -97,38 +97,21 @@ function initSchema() {
 function savePromotion(promo) {
   const stmt = getDb().prepare(`
     INSERT OR IGNORE INTO promotions 
-      (ml_id, title, original_price, sale_price, discount_percent, image_url, original_url, affiliate_url, category, seller, source, extra_info)
+      (ml_id, title, original_price, sale_price, discount_percent, image_url, original_url, affiliate_url, category, seller, source)
     VALUES 
-      (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller, @source, @extra_info)
+      (@ml_id, @title, @original_price, @sale_price, @discount_percent, @image_url, @original_url, @affiliate_url, @category, @seller, @source)
   `);
 
   const sanitized = {
-    // Valores padrão para evitar erros de NOT NULL no SQLite
-    source: 'mercadolivre',
-    extra_info: null,
-    category: 'geral',
-    seller: 'Desconhecido',
-    image_url: null,
-    
     ...promo,
-
-    // Sanitização crítica: garante que campos obrigatórios nunca sejam null/undefined
-    title: (promo.title || 'Produto sem título').substring(0, 255),
+    title: (promo.title || 'Produto Shopee').substring(0, 255),
     original_url: promo.original_url || promo.affiliate_url || '#',
-    affiliate_url: promo.affiliate_url || promo.original_url || '#',
-    
-    // Garantia para números
-    sale_price: Number(parseFloat(promo.sale_price).toFixed(2)),
-    original_price: promo.original_price ? Number(parseFloat(promo.original_price).toFixed(2)) : null,
-    discount_percent: promo.discount_percent || 0,
+    affiliate_url: promo.affiliate_url || '#',
+    sale_price: parseFloat(promo.sale_price) || 0,
+    discount_percent: parseInt(promo.discount_percent) || 0
   };
 
-  try {
-    return stmt.run(sanitized).changes > 0;
-  } catch (err) {
-    console.error(`[DB] Erro ao salvar promoção ${promo.ml_id}:`, err.message);
-    return false;
-  }
+  return stmt.run(sanitized).changes > 0;
 }
 
 function getPendingPromotions() {
