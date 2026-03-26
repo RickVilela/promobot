@@ -32,7 +32,14 @@ async function scrapeShopeeOffers(affiliateTag, minDiscount = 0) {
   const query = `query getProductList($page: Int, $limit: Int) {
     productOfferV2(page: $page, limit: $limit, sortType: 2) {
       nodes {
-        itemId productName imageUrl offerLink price priceMin priceMax shopName
+        itemId
+        productName
+        imageUrl
+        offerLink
+        priceMin      # Preço com desconto (venda)
+        originalPrice # Preço sem desconto (de)
+        discount      # Porcentagem de desconto
+        shopName
       }
     }
   }`;
@@ -58,19 +65,37 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 0) {
 }
 
 function processShopeeItems(items, affiliateTag, minDiscount, category) {
-  return items.map(item => ({
-    ml_id: `SHOPEE_${item.itemId}`,
-    title: item.productName,
-    original_price: parseFloat(item.price || item.priceMin),
-    sale_price: parseFloat(item.price || item.priceMin),
-    discount_percent: 0, 
-    image_url: item.imageUrl,
-    original_url: item.offerLink,
-    affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
-    category: category,
-    seller: item.shopName,
-    source: 'shopee'
-  }));
+  const results = [];
+
+  for (const item of items) {
+    const salePrice = parseFloat(item.priceMin);
+    const originalPrice = parseFloat(item.originalPrice || item.priceMin);
+    
+    // Calcula o desconto real se a API não mandar pronto
+    let discountPercent = item.discount ? parseInt(item.discount) : 0;
+    if (discountPercent === 0 && originalPrice > salePrice) {
+      discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
+    }
+
+    // REGRA DE OURO: Só adiciona se houver desconto real e atingir o mínimo
+    if (salePrice < originalPrice && discountPercent >= minDiscount) {
+      results.push({
+        ml_id: `SHOPEE_${item.itemId}`,
+        title: item.productName,
+        original_price: originalPrice,
+        sale_price: salePrice,
+        discount_percent: discountPercent,
+        image_url: item.imageUrl,
+        original_url: item.offerLink,
+        affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
+        category: category,
+        seller: item.shopName,
+        source: 'shopee'
+      });
+    }
+  }
+
+  return results;
 }
 
 function buildAffiliateUrl(url, subId) {

@@ -118,9 +118,9 @@ function savePromotion(promo) {
     affiliate_url: promo.affiliate_url || promo.original_url || '#',
     
     // Garantia para números
+    original_price: (promo.original_price > promo.sale_price) ? promo.original_price : null,
     sale_price: parseFloat(promo.sale_price) || 0,
-    original_price: promo.original_price ? parseFloat(promo.original_price) : null,
-    discount_percent: promo.discount_percent ? parseInt(promo.discount_percent) : 0,
+    discount_percent: promo.discount_percent || 0,
   };
 
   try {
