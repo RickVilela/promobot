@@ -34,21 +34,21 @@ async function fetchShopeeGraphQL(query, variables = {}) {
 }
 
 async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
-  console.log('[Shopee] Buscando "Shopee Offers" (Ofertas Oficiais de Afiliados)...');
+  console.log('[Shopee] Buscando "Shopee Offers" (Ofertas Oficiais)...');
   
-  // A query para "Shopee Offer" utiliza shopeeOfferV2
+  // QUERY CORRIGIDA: No ShopeeOfferV2, os campos de produto costumam 
+  // vir dentro de 'productInfo' ou com nomes diretos sem o 'itemId' (usa-id ou productId)
   const query = `query getShopeeOffers($page: Int, $limit: Int) {
     shopeeOfferV2(page: $page, limit: $limit) {
       nodes {
-        itemId
+        id                # ID da Oferta
         productName
         imageUrl
         offerLink
         price             # Preço atual
         originalPrice     # Preço sem desconto
-        discount          # Valor do desconto (ex: "30%")
+        discount          # Ex: "30%"
         shopName
-        commissionRate    # Taxa de comissão (útil para saber se vale a pena postar)
       }
     }
   }`;
@@ -59,30 +59,35 @@ async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
   const results = [];
   for (const item of items) {
     const salePrice = parseFloat(item.price);
-    const originalPrice = parseFloat(item.originalPrice || item.price);
+    let originalPrice = parseFloat(item.originalPrice || 0);
     
-    // Extração robusta do desconto
-    let discountPercent = 0;
-    if (item.discount) {
-      discountPercent = parseInt(String(item.discount).replace(/[^0-9]/g, ''));
+    // Extração do desconto
+    let discountPercent = item.discount ? parseInt(String(item.discount).replace(/[^0-9]/g, '')) : 0;
+
+    // Se não tem preço original mas tem %, calculamos
+    if ((!originalPrice || originalPrice <= salePrice) && discountPercent > 0) {
+      originalPrice = salePrice / (1 - (discountPercent / 100));
     }
 
-    // Se o preço original for igual ao de venda, tentamos calcular se houver indicação de desconto
-    if (originalPrice <= salePrice && discountPercent > 0) {
-      const calculatedOriginal = salePrice / (1 - (discountPercent / 100));
-      results.push(buildSchema(item, salePrice, calculatedOriginal, discountPercent, affiliateTag));
-    } 
-    // Se o desconto for válido e atingir o mínimo
-    else if (discountPercent >= minDiscount || originalPrice > salePrice) {
-      const finalDiscount = discountPercent || Math.round(((originalPrice - salePrice) / originalPrice) * 100);
-      
-      if (finalDiscount >= minDiscount) {
-        results.push(buildSchema(item, salePrice, originalPrice, finalDiscount, affiliateTag));
-      }
+    // Se o desconto atingir o mínimo, adicionamos ao resultado
+    if (discountPercent >= minDiscount && salePrice > 0) {
+      results.push({
+        ml_id: `SHOPEE_OFFER_${item.id}`, // Usamos o 'id' retornado pela oferta
+        title: item.productName,
+        original_price: originalPrice > salePrice ? originalPrice : null,
+        sale_price: salePrice,
+        discount_percent: discountPercent,
+        image_url: item.imageUrl,
+        original_url: item.offerLink,
+        affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
+        category: 'Shopee Offers',
+        seller: item.shopName,
+        source: 'shopee'
+      });
     }
   }
 
-  console.log(`[Shopee] ${results.length} Shopee Offers encontradas.`);
+  console.log(`[Shopee] ${results.length} Shopee Offers processadas.`);
   return results;
 }
 
