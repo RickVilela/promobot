@@ -1,8 +1,9 @@
 const axios = require('axios');
 const crypto = require('crypto');
 
-// ─── Shopee Affiliate API (REST) ───────────────────────────────
-
+// ─────────────────────────────────────────────
+// 🔐 AUTH
+// ─────────────────────────────────────────────
 function getShopeeHeaders(appId, secret, body) {
   const timestamp = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify(body);
@@ -28,69 +29,79 @@ function buildAffiliateUrl(url, subId) {
   }
 }
 
-// ───────────────────────────────────────────────────────────────
-// 🔥 BUSCAR PROMOÇÕES GERAIS
-// ───────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 🔥 PROMOÇÕES
+// ─────────────────────────────────────────────
 async function scrapeShopeeOffers(affiliateTag, minDiscount = 15) {
   const appId = process.env.SHOPEE_APP_ID;
   const secret = process.env.SHOPEE_SECRET;
 
   if (!appId || !secret) {
-    console.log('[Shopee] Credenciais não configuradas');
+    console.log('[Shopee] Sem credenciais');
     return [];
   }
 
-  const results = [];
   console.log('[Shopee] Buscando promoções...');
+  const results = [];
 
   try {
     const body = {
-      page: 1,
-      limit: 50,
-      sort_type: 2, // 1 = popularidade | 2 = comissão
+      query: `
+      query {
+        productOfferV2(listType: 2, sortType: 2, page: 1, limit: 50) {
+          nodes {
+            itemId
+            productName
+            imageUrl
+            offerLink
+            originalPrice
+            priceMin
+            priceMax
+            discount
+            shopName
+          }
+        }
+      }`,
     };
 
     const headers = getShopeeHeaders(appId, secret, body);
 
     const resp = await axios.post(
-      'https://open-api.affiliate.shopee.com.br/api/v1/product_offer/list',
+      'https://affiliate-open-api.shopee.com.br/graphql',
       body,
       { headers, timeout: 15000 }
     );
 
-    const items = resp.data?.data?.list || [];
+    const items = resp.data?.data?.productOfferV2?.nodes || [];
     console.log(`[Shopee] ${items.length} itens recebidos`);
 
     for (const item of items) {
-      try {
-        const originalPrice = parseFloat(item.price_before_discount) || null;
-        const salePrice = parseFloat(item.price) || null;
-        if (!salePrice) continue;
+      const salePrice = parseFloat(item.priceMin || item.priceMax);
+      const originalPrice = parseFloat(item.originalPrice);
 
-        let discountPercent = item.discount_rate || null;
+      if (!salePrice) continue;
 
-        if (!discountPercent && originalPrice && originalPrice > salePrice) {
-          discountPercent = Math.round(
-            ((originalPrice - salePrice) / originalPrice) * 100
-          );
-        }
+      let discount = item.discount
+        ? parseInt(item.discount)
+        : originalPrice
+        ? Math.round(((originalPrice - salePrice) / originalPrice) * 100)
+        : null;
 
-        if (discountPercent !== null && discountPercent < minDiscount) continue;
+      if (discount !== null && discount < minDiscount) continue;
 
-        results.push({
-          ml_id: 'SHOPEE_' + item.item_id,
-          title: (item.item_name || '').substring(0, 200),
-          original_price: originalPrice,
-          sale_price: salePrice,
-          discount_percent: discountPercent,
-          image_url: item.image || null,
-          original_url: item.product_link,
-          affiliate_url: buildAffiliateUrl(item.product_link, affiliateTag),
-          category: 'shopee',
-          seller: item.shop_name || null,
-          source: 'shopee',
-        });
-      } catch (e) {}
+      results.push({
+        ml_id: 'SHOPEE_' + item.itemId,
+        title: item.productName,
+        original_price: originalPrice,
+        sale_price: salePrice,
+        discount_percent: discount,
+        image_url: item.imageUrl,
+        original_url: item.offerLink,
+        affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
+        category: 'shopee',
+        seller: item.shopName,
+        source: 'shopee',
+      });
     }
   } catch (err) {
     console.error('[Shopee] Erro:', err.response?.data || err.message);
@@ -100,66 +111,76 @@ async function scrapeShopeeOffers(affiliateTag, minDiscount = 15) {
   return results;
 }
 
-// ───────────────────────────────────────────────────────────────
-// 🔍 BUSCAR POR PALAVRA-CHAVE
-// ───────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// 🔍 KEYWORD
+// ─────────────────────────────────────────────
 async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 15) {
   const appId = process.env.SHOPEE_APP_ID;
   const secret = process.env.SHOPEE_SECRET;
 
   if (!appId || !secret) return [];
 
-  console.log(`[Shopee] Buscando keyword: "${keyword}"`);
+  console.log(`[Shopee] Buscando: "${keyword}"`);
 
   const results = [];
 
   try {
     const body = {
-      keyword: keyword,
-      page: 1,
-      limit: 30,
+      query: `
+      query {
+        productOfferV2(keyword: "${keyword}", page: 1, limit: 30) {
+          nodes {
+            itemId
+            productName
+            imageUrl
+            offerLink
+            originalPrice
+            priceMin
+            priceMax
+            discount
+            shopName
+          }
+        }
+      }`,
     };
 
     const headers = getShopeeHeaders(appId, secret, body);
 
     const resp = await axios.post(
-      'https://open-api.affiliate.shopee.com.br/api/v1/product_offer/list',
+      'https://affiliate-open-api.shopee.com.br/graphql',
       body,
       { headers, timeout: 15000 }
     );
 
-    const items = resp.data?.data?.list || [];
+    const items = resp.data?.data?.productOfferV2?.nodes || [];
 
     for (const item of items) {
-      try {
-        const originalPrice = parseFloat(item.price_before_discount) || null;
-        const salePrice = parseFloat(item.price) || null;
-        if (!salePrice) continue;
+      const salePrice = parseFloat(item.priceMin || item.priceMax);
+      const originalPrice = parseFloat(item.originalPrice);
 
-        let discountPercent = item.discount_rate || null;
+      if (!salePrice) continue;
 
-        if (!discountPercent && originalPrice && originalPrice > salePrice) {
-          discountPercent = Math.round(
-            ((originalPrice - salePrice) / originalPrice) * 100
-          );
-        }
+      let discount = item.discount
+        ? parseInt(item.discount)
+        : originalPrice
+        ? Math.round(((originalPrice - salePrice) / originalPrice) * 100)
+        : null;
 
-        if (discountPercent !== null && discountPercent < minDiscount) continue;
+      if (discount !== null && discount < minDiscount) continue;
 
-        results.push({
-          ml_id: 'SHOPEE_' + item.item_id,
-          title: (item.item_name || '').substring(0, 200),
-          original_price: originalPrice,
-          sale_price: salePrice,
-          discount_percent: discountPercent,
-          image_url: item.image || null,
-          original_url: item.product_link,
-          affiliate_url: buildAffiliateUrl(item.product_link, affiliateTag),
-          category: keyword,
-          seller: item.shop_name || null,
-          source: 'shopee',
-        });
-      } catch (e) {}
+      results.push({
+        ml_id: 'SHOPEE_' + item.itemId,
+        title: item.productName,
+        original_price: originalPrice,
+        sale_price: salePrice,
+        discount_percent: discount,
+        image_url: item.imageUrl,
+        original_url: item.offerLink,
+        affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
+        category: keyword,
+        seller: item.shopName,
+        source: 'shopee',
+      });
     }
   } catch (err) {
     console.error(`[Shopee] Erro keyword "${keyword}":`, err.response?.data || err.message);
