@@ -8,9 +8,8 @@ const crypto = require('crypto');
 function getShopeeHeaders(appId, secret, body) {
   const timestamp = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify(body);
-  // Formato correto: SHA256(AppId + Timestamp + Payload + Secret)
-  const signStr = appId + timestamp + payload + secret;
-  const signature = crypto.createHmac('sha256', secret).update(signStr).digest('hex');
+  // SHA256 puro (nao HMAC): appId + timestamp + payload + secret
+  const signature = crypto.createHash('sha256').update(appId + timestamp + payload + secret).digest('hex');
   return {
     'Content-Type': 'application/json',
     'Authorization': `SHA256 Credential=${appId}, Timestamp=${timestamp}, Signature=${signature}`,
