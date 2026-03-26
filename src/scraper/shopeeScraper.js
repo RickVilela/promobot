@@ -52,7 +52,7 @@ async function scrapeShopeeOffers(affiliateTag, minDiscount = 15) {
       'https://open-api.affiliate.shopee.com.br/graphql',
       {
         query: `{
-          productOfferV2(listType: 1, sortType: 2, page: 1, limit: 50) {
+          productOfferV2(listType: 0, sortType: 2, page: 1, limit: 50) {
             nodes {
               itemId
               productName
