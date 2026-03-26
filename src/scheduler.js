@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { scrapeShopeeOffers } = require('./scraper/shopeeScraper');
+const { scrapeShopeeOffers, scrapeShopeeKeyword } = require('./scraper/shopeeScraper');
 const { scrapeRakutenOffers } = require('./scraper/rakutenScraper');
 const { savePromotion, getPendingPromotions, markAsPosted, updateSourceRun, isSourceActive } = require('./db/database');
 const { sendPromotion: sendTelegram } = require('./bot/telegram');
