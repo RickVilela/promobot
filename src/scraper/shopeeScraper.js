@@ -74,8 +74,8 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
   const query = `query getProductOffers($keyword: String, $page: Int, $limit: Int) {
     productOfferV2(
       keyword: $keyword,
-      listType: 0,    # Mudado para 0 (Geral) para aumentar a variedade
-      sortType: 2,    # Mudado para 2 (Melhores Ofertas/Comissões)
+      listType: 0, 
+      sortType: 2, 
       page: $page, 
       limit: $limit
     ) {
@@ -85,9 +85,9 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
         productLink
         offerLink
         imageUrl
-        priceMin
-        priceMax
-        priceDiscountRate
+        priceMin            # Preço com desconto
+        priceMax            # Preço original (riscado)
+        priceDiscountRate   # Porcentagem de desconto
         shopName
       }
     }
@@ -97,44 +97,41 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
   const items = data?.productOfferV2?.nodes || [];
   
   const results = [];
-  const seenIds = new Set(); // Evita duplicados no mesmo ciclo
+  const seenIds = new Set();
 
   for (const item of items) {
     if (seenIds.has(item.itemId)) continue;
 
-    const salePrice = parseFloat(item.priceMin || 0);
+    // CAPTURA LITERAL DOS CAMPOS
+    const sale_price = parseFloat(item.priceMin);
+    const original_price = parseFloat(item.priceMax);
+    const discount_percent = item.priceDiscountRate ? parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, '')) : 0;
+
+    // REGRA DE OURO: Ignora se algum campo essencial for nulo, zero ou se não houver desconto real
+    if (!sale_price || !original_price || !discount_percent) continue;
     
-    // FILTRO DE QUALIDADE: 
-    // Itens entre R$ 30 e R$ 1500 costumam ser os que mais vendem em canais
-    if (salePrice < 30.00 || salePrice > 1500.00) continue;
+    // Ignora se o preço original não for maior que o de venda (evita erro de exibição)
+    if (original_price <= sale_price) continue;
 
-    let discountPercent = item.priceDiscountRate ? parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, '')) : 0;
-    let originalPrice = parseFloat(item.priceMax) > salePrice ? parseFloat(item.priceMax) : null;
+    // Filtro de desconto mínimo solicitado por você
+    if (discount_percent < minDiscount) continue;
 
-    // Se o desconto for muito baixo ou nulo, tentamos calcular
-    if (discountPercent < minDiscount && originalPrice) {
-      discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
-    }
-
-    if (discountPercent >= minDiscount) {
-      seenIds.add(item.itemId);
-      results.push({
-        ml_id: `SH_${item.itemId}`,
-        title: cleanTitle(item.productName),
-        original_price: originalPrice,
-        sale_price: salePrice,
-        discount_percent: discountPercent,
-        image_url: item.imageUrl,
-        original_url: item.productLink || item.offerLink,
-        affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
-        category: 'Destaques',
-        seller: item.shopName,
-        source: 'shopee'
-      });
-    }
+    seenIds.add(item.itemId);
+    results.push({
+      ml_id: `SH_${item.itemId}`,
+      title: item.productName.substring(0, 100),
+      original_price: original_price,
+      sale_price: sale_price,
+      discount_percent: discount_percent,
+      image_url: item.imageUrl,
+      original_url: item.productLink || item.offerLink,
+      affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
+      category: 'Destaques',
+      seller: item.shopName,
+      source: 'shopee'
+    });
   }
 
-  // Embaralha os resultados para o post não ser sempre na mesma ordem da API
   return results.sort(() => 0.5 - Math.random());
 }
 
