@@ -34,87 +34,70 @@ async function fetchShopeeGraphQL(query, variables = {}) {
 }
 
 async function scrapeShopeeOffers(affiliateTag, minDiscount = 5) {
-  console.log('[Shopee] Buscando "Shopee Offers" (Ofertas Oficiais)...');
+  console.log('[Shopee] Buscando Produtos em Oferta (productOfferV2)...');
   
-  /**
-   * QUERY CORRIGIDA: 
-   * No endpoint ShopeeOfferV2, os dados detalhados do item 
-   * ficam dentro do objeto 'productInfo'.
-   */
-  const query = `query getShopeeOffers($page: Int, $limit: Int) {
-    shopeeOfferV2(page: $page, limit: $limit) {
+  // Query baseada no schema que você enviou
+  const query = `query getProductOffers($page: Int, $limit: Int) {
+    productOfferV2(
+      listType: 1, 
+      sortType: 5, 
+      page: $page, 
+      limit: $limit
+    ) {
       nodes {
-        productInfo {
-          itemId
-          productName
-          imageUrl
-          offerLink
-          price
-          originalPrice
-          discount
-          shopName
-        }
+        itemId
+        productName
+        productLink
+        offerLink
+        imageUrl
+        priceMin
+        priceMax
+        priceDiscountRate
+        sales
+        shopName
       }
     }
   }`;
 
   const data = await fetchShopeeGraphQL(query, { page: 1, limit: 50 });
-  const nodes = data?.shopeeOfferV2?.nodes || [];
+  const items = data?.productOfferV2?.nodes || [];
   
   const results = [];
-  for (const node of nodes) {
-    // Extraímos o produto do sub-objeto 'productInfo'
-    const item = node.productInfo;
-    if (!item) continue;
-
-    const salePrice = parseFloat(item.price);
-    let originalPrice = parseFloat(item.originalPrice || 0);
+  for (const item of items) {
+    const salePrice = parseFloat(item.priceMin || 0);
     
-    // Extração do desconto (ex: "30%" -> 30)
-    let discountPercent = item.discount ? parseInt(String(item.discount).replace(/[^0-9]/g, '')) : 0;
+    // O priceDiscountRate costuma vir como número (ex: 15) ou string (ex: "15%")
+    let discountPercent = 0;
+    if (item.priceDiscountRate) {
+      discountPercent = parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, ''));
+    }
 
-    // Lógica de recuperação de preço original
-    if ((!originalPrice || originalPrice <= salePrice) && discountPercent > 0) {
+    // Cálculo do preço original (Preço "De") baseado no desconto informado
+    let originalPrice = null;
+    if (discountPercent > 0 && salePrice > 0) {
       originalPrice = salePrice / (1 - (discountPercent / 100));
     }
 
-    // Filtro de desconto mínimo
-    if (discountPercent >= minDiscount && salePrice > 0) {
+    // Filtro: Só aceita se houver desconto mínimo e preço válido
+    if (salePrice > 0 && discountPercent >= minDiscount) {
       results.push({
-        ml_id: `SHOPEE_OFFER_${item.itemId}`,
+        ml_id: `SHOPEE_${item.itemId}`,
         title: item.productName,
-        original_price: originalPrice > salePrice ? originalPrice : null,
+        original_price: originalPrice,
         sale_price: salePrice,
         discount_percent: discountPercent,
         image_url: item.imageUrl,
-        original_url: item.offerLink,
+        original_url: item.productLink || item.offerLink,
         affiliate_url: buildAffiliateUrl(item.offerLink, affiliateTag),
-        category: 'Shopee Offers',
+        category: 'Ofertas Shopee',
         seller: item.shopName,
         source: 'shopee'
       });
     }
   }
 
-  console.log(`[Shopee] ${results.length} Shopee Offers processadas.`);
+  console.log(`[Shopee] ${results.length} produtos processados.`);
   return results;
-}
-
-// Helper para manter o objeto padronizado
-function buildSchema(item, sale, original, discount, tag) {
-  return {
-    ml_id: `SHOPEE_${item.itemId}`,
-    title: item.productName,
-    original_price: original > sale ? original : null,
-    sale_price: sale,
-    discount_percent: discount,
-    image_url: item.imageUrl,
-    original_url: item.offerLink,
-    affiliate_url: buildAffiliateUrl(item.offerLink, tag),
-    category: 'Shopee Offers',
-    seller: item.shopName,
-    source: 'shopee'
-  };
 }
 
 function buildAffiliateUrl(url, subId) {
