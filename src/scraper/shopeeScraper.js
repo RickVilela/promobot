@@ -71,9 +71,8 @@ async function scrapeShopeeOffers(affiliateTag, minDiscount = 10) {
 }
 
 async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
-  const query = `query getProductOffers($keyword: String, $page: Int, $limit: Int) {
+  const query = `query getProductOffers( $page: Int, $limit: Int) {
     productOfferV2(
-      keyword: $keyword,
       listType: 0, 
       sortType: 1, 
       page: $page, 
@@ -93,7 +92,7 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
     }
   }`;
 
-  const data = await fetchShopeeGraphQL(query, { keyword, page: 1, limit: 40 });
+  const data = await fetchShopeeGraphQL(query, { page: 1, limit: 40 });
   const items = data?.productOfferV2?.nodes || [];
   
   const results = [];
