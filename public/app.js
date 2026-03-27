@@ -552,123 +552,129 @@ function renderStoryCanvas(p) {
   canvas.width  = 1080;
   canvas.height = 1920;
 
-  var scale = canvas.offsetWidth / 1080 || 1;
+  var BORDER = 60; // borda branca externa em todos os lados
 
-  // Fundo branco
+  // Fundo branco total (a borda)
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 1080, 1920);
 
+  // Área interna do story (com recuo da borda)
+  var iX = BORDER, iY = BORDER;
+  var iW = 1080 - BORDER * 2;
+  var iH = 1920 - BORDER * 2;
+
+  // Fundo interno branco
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(iX, iY, iW, iH);
+
   // Topo vermelho — OFERTA DO DIA
   ctx.fillStyle = '#E24B4A';
-  ctx.fillRect(0, 0, 1080, 110);
+  ctx.fillRect(iX, iY, iW, 110);
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 46px DM Sans, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('⭐  OFERTA DO DIA  ⭐', 540, 72);
+  ctx.fillText('\u2B50  OFERTA DO DIA  \u2B50', 540, iY + 72);
 
-  // Linha decorativa inferior do topo
+  // Linha decorativa
   ctx.fillStyle = '#c73b3a';
-  ctx.fillRect(0, 110, 1080, 8);
+  ctx.fillRect(iX, iY + 110, iW, 8);
 
-  // Badge de desconto (canto superior direito da área de imagem)
+  // Área de imagem
+  var IMG_Y = iY + 118;
+  var IMG_H = 860;
+
+  ctx.fillStyle = '#f7f7f5';
+  ctx.fillRect(iX, IMG_Y, iW, IMG_H);
+
+  // Badge de desconto
   if (p.discount_percent) {
     ctx.fillStyle = '#E24B4A';
-    roundRect(ctx, 820, 140, 220, 100, 50);
+    roundRect(ctx, iX + iW - 240, IMG_Y + 20, 220, 100, 50);
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 52px DM Sans, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('-' + p.discount_percent + '% OFF', 930, 207);
+    ctx.fillText('-' + p.discount_percent + '% OFF', iX + iW - 130, IMG_Y + 85);
   }
 
   // Título do produto
+  var textStartY = IMG_Y + IMG_H + 70;
   ctx.fillStyle = '#111111';
   ctx.font = '500 48px DM Sans, sans-serif';
   ctx.textAlign = 'center';
-  wrapText(ctx, p.title || '', 540, 1120, 940, 62);
+  wrapText(ctx, p.title || '', 540, textStartY, iW - 40, 62);
 
-  // Preços
+  // Preço original riscado
   if (p.original_price && p.sale_price) {
-    // Preço original riscado
     ctx.fillStyle = '#999999';
-    ctx.font = '400 46px DM Sans, sans-serif';
+    ctx.font = '400 44px DM Sans, sans-serif';
     ctx.textAlign = 'center';
     var origTxt = 'De: ' + fmtPrice(p.original_price);
-    ctx.fillText(origTxt, 540, 1320);
-    // Linha de strike
+    ctx.fillText(origTxt, 540, textStartY + 155);
     var origW = ctx.measureText(origTxt).width;
     ctx.strokeStyle = '#999999';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(540 - origW / 2, 1315);
-    ctx.lineTo(540 + origW / 2, 1315);
+    ctx.moveTo(540 - origW / 2, textStartY + 150);
+    ctx.lineTo(540 + origW / 2, textStartY + 150);
     ctx.stroke();
   }
 
   // Preço promocional
   ctx.fillStyle = '#E24B4A';
-  ctx.font = 'bold 110px DM Sans, sans-serif';
+  ctx.font = 'bold 120px DM Sans, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(fmtPrice(p.sale_price), 540, 1480);
+  ctx.fillText(fmtPrice(p.sale_price), 540, textStartY + 310);
 
   // Separador
   ctx.strokeStyle = '#eeeeee';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(80, 1560);
-  ctx.lineTo(1000, 1560);
+  ctx.moveTo(iX + 40, textStartY + 360);
+  ctx.lineTo(iX + iW - 40, textStartY + 360);
   ctx.stroke();
 
-  // Botão CTA
-  ctx.fillStyle = '#111111';
-  roundRect(ctx, 120, 1600, 840, 130, 65);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 52px DM Sans, sans-serif';
-  ctx.textAlign = 'center';
-  var domain = '';
-  try { domain = new URL(p.affiliate_url).hostname.replace('www.', ''); } catch(e) { domain = 'ver oferta'; }
-  ctx.fillText('🛒  Comprar em ' + domain, 540, 1678);
-
   // Rodapé
-  ctx.fillStyle = '#888888';
+  ctx.fillStyle = '#aaaaaa';
   ctx.font = '36px DM Sans, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Link na bio  •  Oferta por tempo limitado', 540, 1870);
+  ctx.fillText('Link na bio  \u2022  Oferta por tempo limitado', 540, iY + iH - 30);
 
-  // Imagem do produto (carrega por último, redesenha)
+  // Imagem do produto
   if (p.image_url) {
     var img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = function() {
-      // Fundo da área de imagem
       ctx.fillStyle = '#f7f7f5';
-      ctx.fillRect(0, 118, 1080, 940);
+      ctx.fillRect(iX, IMG_Y, iW, IMG_H);
 
-      // Centraliza imagem mantendo proporção
-      var maxW = 860, maxH = 820;
+      // Imagem com padding interno (borda branca dentro da área cinza)
+      var PAD = 50;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(iX + PAD, IMG_Y + PAD, iW - PAD*2, IMG_H - PAD*2);
+
+      var maxW = iW - PAD*2 - 40;
+      var maxH = IMG_H - PAD*2 - 40;
       var ratio = Math.min(maxW / img.width, maxH / img.height);
       var iw = img.width * ratio, ih = img.height * ratio;
-      var ix = (1080 - iw) / 2, iy = 118 + (940 - ih) / 2;
+      var ix = iX + PAD + (iW - PAD*2 - iw) / 2;
+      var iy = IMG_Y + PAD + (IMG_H - PAD*2 - ih) / 2;
       ctx.drawImage(img, ix, iy, iw, ih);
 
-      // Redesenha badge de desconto por cima da imagem
+      // Redesenha badge por cima
       if (p.discount_percent) {
         ctx.fillStyle = '#E24B4A';
-        roundRect(ctx, 820, 140, 220, 100, 50);
+        roundRect(ctx, iX + iW - 240, IMG_Y + 20, 220, 100, 50);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 52px DM Sans, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('-' + p.discount_percent + '% OFF', 930, 207);
+        ctx.fillText('-' + p.discount_percent + '% OFF', iX + iW - 130, IMG_Y + 85);
       }
     };
     img.onerror = function() {};
     img.src = p.image_url;
   } else {
     ctx.fillStyle = '#f0ede8';
-    ctx.fillRect(0, 118, 1080, 940);
-    ctx.fillStyle = '#cccccc';
-    ctx.font = '48px DM Sans, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Sem imagem', 540, 600);
+    ctx.fillRect(iX, IMG_Y, iW, IMG_H);
   }
 }
 
