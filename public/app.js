@@ -552,122 +552,158 @@ function renderStoryCanvas(p) {
   canvas.width  = 1080;
   canvas.height = 1920;
 
-  var BORDER = 60; // borda branca externa em todos os lados
-
-  // Fundo branco total (a borda)
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, 1080, 1920);
-
-  // Área interna do story (com recuo da borda)
+  var BORDER = 60;
   var iX = BORDER, iY = BORDER;
   var iW = 1080 - BORDER * 2;
   var iH = 1920 - BORDER * 2;
 
-  // Fundo interno branco
+  // ── Fundo branco total (borda externa) ──
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(iX, iY, iW, iH);
+  ctx.fillRect(0, 0, 1080, 1920);
 
-  // Topo vermelho — OFERTA DO DIA
+  // ── Topo vermelho ──
   ctx.fillStyle = '#E24B4A';
-  ctx.fillRect(iX, iY, iW, 110);
+  ctx.fillRect(iX, iY, iW, 120);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 46px DM Sans, sans-serif';
+  ctx.font = 'bold 48px DM Sans, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('\u2B50  OFERTA DO DIA  \u2B50', 540, iY + 72);
+  ctx.fillText('\u2B50  OFERTA DO DIA  \u2B50', 540, iY + 78);
 
-  // Linha decorativa
-  ctx.fillStyle = '#c73b3a';
-  ctx.fillRect(iX, iY + 110, iW, 8);
+  // ── Área da imagem ──
+  var IMG_Y = iY + 120;
+  var IMG_H = 820;
 
-  // Área de imagem
-  var IMG_Y = iY + 118;
-  var IMG_H = 860;
-
-  ctx.fillStyle = '#f7f7f5';
+  ctx.fillStyle = '#f5f4f0';
   ctx.fillRect(iX, IMG_Y, iW, IMG_H);
 
-  // Badge de desconto
+  // Badge desconto — canto superior direito
   if (p.discount_percent) {
-    ctx.fillStyle = '#E24B4A';
-    roundRect(ctx, iX + iW - 240, IMG_Y + 20, 220, 100, 50);
+    ctx.fillStyle = '#111111';
+    roundRect(ctx, iX + iW - 260, IMG_Y + 24, 240, 90, 8);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 52px DM Sans, sans-serif';
+    ctx.font = 'bold 46px DM Sans, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('-' + p.discount_percent + '% OFF', iX + iW - 130, IMG_Y + 85);
+    ctx.fillText('-' + p.discount_percent + '% OFF', iX + iW - 140, IMG_Y + 82);
   }
 
-  // Título do produto
-  var textStartY = IMG_Y + IMG_H + 70;
+  // ── Corpo de texto ──
+  var bodyY = IMG_Y + IMG_H + 60;
+
+  // Pill da loja
+  var storeName = (p.seller || p.source || 'loja').substring(0, 20);
+  ctx.fillStyle = '#f0faf5';
+  roundRect(ctx, iX + 40, bodyY, 280, 72, 8);
+  ctx.fillStyle = '#1D9E75';
+  ctx.font = '500 34px DM Sans, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('\u25CF  ' + storeName, iX + 60, bodyY + 47);
+
+  bodyY += 100;
+
+  // Acento verde lateral
+  ctx.fillStyle = '#1D9E75';
+  ctx.fillRect(iX + 40, bodyY, 10, 180);
+
+  // Título (max 3 linhas)
   ctx.fillStyle = '#111111';
   ctx.font = '500 48px DM Sans, sans-serif';
-  ctx.textAlign = 'center';
-  wrapText(ctx, p.title || '', 540, textStartY, iW - 40, 62);
+  ctx.textAlign = 'left';
+  var titleLines = wrapTextLines(p.title || '', ctx, iW - 140);
+  titleLines.slice(0, 3).forEach(function(line, i) {
+    ctx.fillText(line, iX + 70, bodyY + 54 + i * 60);
+  });
+
+  bodyY += Math.min(titleLines.length, 3) * 60 + 60;
+
+  // Separador
+  ctx.strokeStyle = '#f0f0f0';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(iX + 40, bodyY);
+  ctx.lineTo(iX + iW - 40, bodyY);
+  ctx.stroke();
+
+  bodyY += 55;
 
   // Preço original riscado
   if (p.original_price && p.sale_price) {
-    ctx.fillStyle = '#999999';
-    ctx.font = '400 44px DM Sans, sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = '#bbbbbb';
+    ctx.font = '400 42px DM Sans, sans-serif';
+    ctx.textAlign = 'left';
     var origTxt = 'De: ' + fmtPrice(p.original_price);
-    ctx.fillText(origTxt, 540, textStartY + 155);
+    ctx.fillText(origTxt, iX + 40, bodyY);
     var origW = ctx.measureText(origTxt).width;
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#bbbbbb';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(540 - origW / 2, textStartY + 150);
-    ctx.lineTo(540 + origW / 2, textStartY + 150);
+    ctx.moveTo(iX + 40, bodyY - 8);
+    ctx.lineTo(iX + 40 + origW, bodyY - 8);
     ctx.stroke();
+    bodyY += 65;
   }
 
-  // Preço promocional
-  ctx.fillStyle = '#E24B4A';
-  ctx.font = 'bold 120px DM Sans, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(fmtPrice(p.sale_price), 540, textStartY + 310);
+  // Preço promocional verde
+  ctx.fillStyle = '#1D9E75';
+  ctx.font = 'bold 110px DM Sans, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(fmtPrice(p.sale_price), iX + 40, bodyY + 100);
+
+  // Badge desconto ao lado do preço
+  if (p.discount_percent) {
+    var priceW = ctx.measureText(fmtPrice(p.sale_price)).width;
+    ctx.fillStyle = '#E24B4A';
+    roundRect(ctx, iX + 50 + priceW, bodyY + 30, 220, 80, 8);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 40px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('-' + p.discount_percent + '%', iX + 160 + priceW, bodyY + 82);
+  }
+
+  bodyY += 160;
 
   // Separador
-  ctx.strokeStyle = '#eeeeee';
+  ctx.strokeStyle = '#f0f0f0';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(iX + 40, textStartY + 360);
-  ctx.lineTo(iX + iW - 40, textStartY + 360);
+  ctx.moveTo(iX + 40, bodyY);
+  ctx.lineTo(iX + iW - 40, bodyY);
   ctx.stroke();
 
   // Rodapé
-  ctx.fillStyle = '#aaaaaa';
+  ctx.fillStyle = '#cccccc';
   ctx.font = '36px DM Sans, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Link na bio  \u2022  Oferta por tempo limitado', 540, iY + iH - 30);
+  ctx.fillText('Link na bio  \u2022  Oferta por tempo limitado', 540, iY + iH - 40);
 
-  // Imagem do produto
+  // ── Imagem do produto ──
   if (p.image_url) {
     var img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = function() {
-      ctx.fillStyle = '#f7f7f5';
+      ctx.fillStyle = '#f5f4f0';
       ctx.fillRect(iX, IMG_Y, iW, IMG_H);
 
-      // Imagem com padding interno (borda branca dentro da área cinza)
       var PAD = 50;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(iX + PAD, IMG_Y + PAD, iW - PAD*2, IMG_H - PAD*2);
+      ctx.fillRect(iX + PAD, IMG_Y + PAD, iW - PAD * 2, IMG_H - PAD * 2);
 
-      var maxW = iW - PAD*2 - 40;
-      var maxH = IMG_H - PAD*2 - 40;
+      var maxW = iW - PAD * 2 - 40;
+      var maxH = IMG_H - PAD * 2 - 40;
       var ratio = Math.min(maxW / img.width, maxH / img.height);
-      var iw = img.width * ratio, ih = img.height * ratio;
-      var ix = iX + PAD + (iW - PAD*2 - iw) / 2;
-      var iy = IMG_Y + PAD + (IMG_H - PAD*2 - ih) / 2;
+      var iw = img.width * ratio;
+      var ih = img.height * ratio;
+      var ix = iX + PAD + (iW - PAD * 2 - iw) / 2;
+      var iy = IMG_Y + PAD + (IMG_H - PAD * 2 - ih) / 2;
       ctx.drawImage(img, ix, iy, iw, ih);
 
       // Redesenha badge por cima
       if (p.discount_percent) {
-        ctx.fillStyle = '#E24B4A';
-        roundRect(ctx, iX + iW - 240, IMG_Y + 20, 220, 100, 50);
+        ctx.fillStyle = '#111111';
+        roundRect(ctx, iX + iW - 260, IMG_Y + 24, 240, 90, 8);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 52px DM Sans, sans-serif';
+        ctx.font = 'bold 46px DM Sans, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('-' + p.discount_percent + '% OFF', iX + iW - 130, IMG_Y + 85);
+        ctx.fillText('-' + p.discount_percent + '% OFF', iX + iW - 140, IMG_Y + 82);
       }
     };
     img.onerror = function() {};
@@ -675,19 +711,13 @@ function renderStoryCanvas(p) {
   } else {
     ctx.fillStyle = '#f0ede8';
     ctx.fillRect(iX, IMG_Y, iW, IMG_H);
+    ctx.fillStyle = '#cccccc';
+    ctx.font = '44px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Sem imagem', 540, IMG_Y + IMG_H / 2);
   }
 }
 
-function downloadStory() {
-  var canvas = document.getElementById('story-canvas');
-  var link = document.createElement('a');
-  link.download = 'story-promobot.png';
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-  toast('Story baixado!', 'success');
-}
-
-// helpers canvas
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -703,20 +733,36 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.fill();
 }
 
-function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+function wrapTextLines(text, ctx, maxWidth) {
   var words = text.split(' ');
+  var lines = [];
   var line = '';
   for (var i = 0; i < words.length; i++) {
     var test = line + words[i] + ' ';
     if (ctx.measureText(test).width > maxWidth && i > 0) {
-      ctx.fillText(line.trim(), x, y);
+      lines.push(line.trim());
       line = words[i] + ' ';
-      y += lineHeight;
     } else {
       line = test;
     }
   }
-  ctx.fillText(line.trim(), x, y);
+  if (line.trim()) lines.push(line.trim());
+  return lines;
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  wrapTextLines(text, ctx, maxWidth).forEach(function(line, i) {
+    ctx.fillText(line, x, y + i * lineHeight);
+  });
+}
+
+function downloadStory() {
+  var canvas = document.getElementById('story-canvas');
+  var link = document.createElement('a');
+  link.download = 'story-promobot.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  toast('Story baixado!', 'success');
 }
 // ─── INIT ─────────────────────────────────────────────────────
 render('dashboard');
