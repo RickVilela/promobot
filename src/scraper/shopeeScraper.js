@@ -75,7 +75,7 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
     productOfferV2(
       keyword: $keyword,
       listType: 0, 
-      sortType: 2, 
+      sortType: 1, 
       page: $page, 
       limit: $limit
     ) {
@@ -85,8 +85,8 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
         productLink
         offerLink
         imageUrl
-        priceMin            # Preço com desconto
-        priceMax            # Preço original (riscado)
+        priceMin            # Preço minimo entre as variacoes
+        priceMax            # Preço maximo entre as variacoes
         priceDiscountRate   # Porcentagem de desconto
         shopName
       }
@@ -102,18 +102,20 @@ async function scrapeShopeeKeyword(keyword, affiliateTag, minDiscount = 5) {
   for (const item of items) {
     if (seenIds.has(item.itemId)) continue;
 
-    // CAPTURA LITERAL DOS CAMPOS
+   // CAPTURA LITERAL DOS CAMPOS
     const sale_price = parseFloat(item.priceMin);
-    const original_price = parseFloat(item.priceMax);
-    const discount_percent = item.priceDiscountRate ? parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, '')) : 0;
+    const discount_percent = item.priceDiscountRate 
+      ? parseInt(String(item.priceDiscountRate).replace(/[^0-9]/g, '')) 
+      : 0;
 
-    // REGRA DE OURO: Ignora se algum campo essencial for nulo, zero ou se não houver desconto real
-    if (!sale_price || !original_price || !discount_percent) continue;
-    
-    // Ignora se o preço original não for maior que o de venda (evita erro de exibição)
+    // Calcula o preço original com base no sale_price e no desconto
+    const original_price = discount_percent > 0
+      ? parseFloat((sale_price / (1 - discount_percent / 100)).toFixed(2))
+      : sale_price;
+
+    // Validações
+    if (!sale_price || !discount_percent) continue;
     if (original_price <= sale_price) continue;
-
-    // Filtro de desconto mínimo solicitado por você
     if (discount_percent < minDiscount) continue;
 
     seenIds.add(item.itemId);
