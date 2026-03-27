@@ -123,3 +123,8 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); min-
   .sidebar { width: 180px; }
   .main { margin-left: 180px; }
 }
+/* Adicione ao final do style.css */
+#story-modal .modal {
+  max-height: 92vh;
+  overflow-y: auto;
+}

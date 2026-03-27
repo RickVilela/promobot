@@ -418,9 +418,10 @@ function renderPromoList(promos, showActions) {
       : '🏷';
     var discount = p.discount_percent ? '<span class="badge badge-danger">-' + p.discount_percent + '%</span>' : '';
     var actions = showActions
-      ? '<div class="icon-btn green" title="Postar agora" onclick="postNow(' + p.id + ',this)">▶</div>' +
-        '<div class="icon-btn danger" title="Ignorar" onclick="ignorePromo(' + p.id + ')">✕</div>'
-      : '<div class="icon-btn" title="Abrir link" onclick="window.open(\'' + escHtml(p.affiliate_url) + '\',\'_blank\')">↗</div>';
+    ? '<div class="icon-btn green" title="Postar agora" onclick="postNow(' + p.id + ',this)">▶</div>' +
+      '<div class="icon-btn" title="Gerar Story" onclick="openStory(' + p.id + ')">📸</div>' +
+      '<div class="icon-btn danger" title="Ignorar" onclick="ignorePromo(' + p.id + ')">✕</div>'
+    : '<div class="icon-btn" title="Abrir link" onclick="window.open(\'' + escHtml(p.affiliate_url) + '\',\'_blank\')">↗</div>';
     return '<div class="promo-card" id="promo-' + p.id + '">' +
       '<div class="promo-thumb">' + thumb + '</div>' +
       '<div class="promo-info">' +
@@ -528,6 +529,189 @@ function toast(msg, type) {
   setTimeout(function() { t.classList.remove('show'); }, 3000);
 }
 
+// ─── STORY GENERATOR ──────────────────────────────────────────
+var _storyPromos = [];
+
+function openStory(id) {
+  fetch('/api/pending').then(function(r) { return r.json(); }).then(function(data) {
+    _storyPromos = data;
+    var p = data.find(function(x) { return x.id === id; });
+    if (!p) return toast('Promoção não encontrada', 'error');
+    document.getElementById('story-modal').classList.add('show');
+    renderStoryCanvas(p);
+  });
+}
+
+function closeStory() {
+  document.getElementById('story-modal').classList.remove('show');
+}
+
+function renderStoryCanvas(p) {
+  var canvas = document.getElementById('story-canvas');
+  var ctx = canvas.getContext('2d');
+  canvas.width  = 1080;
+  canvas.height = 1920;
+
+  var scale = canvas.offsetWidth / 1080 || 1;
+
+  // Fundo branco
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 1080, 1920);
+
+  // Topo vermelho — OFERTA DO DIA
+  ctx.fillStyle = '#E24B4A';
+  ctx.fillRect(0, 0, 1080, 110);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 46px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('⭐  OFERTA DO DIA  ⭐', 540, 72);
+
+  // Linha decorativa inferior do topo
+  ctx.fillStyle = '#c73b3a';
+  ctx.fillRect(0, 110, 1080, 8);
+
+  // Badge de desconto (canto superior direito da área de imagem)
+  if (p.discount_percent) {
+    ctx.fillStyle = '#E24B4A';
+    roundRect(ctx, 820, 140, 220, 100, 50);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 52px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('-' + p.discount_percent + '% OFF', 930, 207);
+  }
+
+  // Título do produto
+  ctx.fillStyle = '#111111';
+  ctx.font = '500 48px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  wrapText(ctx, p.title || '', 540, 1120, 940, 62);
+
+  // Preços
+  if (p.original_price && p.sale_price) {
+    // Preço original riscado
+    ctx.fillStyle = '#999999';
+    ctx.font = '400 46px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    var origTxt = 'De: ' + fmtPrice(p.original_price);
+    ctx.fillText(origTxt, 540, 1320);
+    // Linha de strike
+    var origW = ctx.measureText(origTxt).width;
+    ctx.strokeStyle = '#999999';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(540 - origW / 2, 1315);
+    ctx.lineTo(540 + origW / 2, 1315);
+    ctx.stroke();
+  }
+
+  // Preço promocional
+  ctx.fillStyle = '#E24B4A';
+  ctx.font = 'bold 110px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(fmtPrice(p.sale_price), 540, 1480);
+
+  // Separador
+  ctx.strokeStyle = '#eeeeee';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(80, 1560);
+  ctx.lineTo(1000, 1560);
+  ctx.stroke();
+
+  // Botão CTA
+  ctx.fillStyle = '#111111';
+  roundRect(ctx, 120, 1600, 840, 130, 65);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 52px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  var domain = '';
+  try { domain = new URL(p.affiliate_url).hostname.replace('www.', ''); } catch(e) { domain = 'ver oferta'; }
+  ctx.fillText('🛒  Comprar em ' + domain, 540, 1678);
+
+  // Rodapé
+  ctx.fillStyle = '#888888';
+  ctx.font = '36px DM Sans, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Link na bio  •  Oferta por tempo limitado', 540, 1870);
+
+  // Imagem do produto (carrega por último, redesenha)
+  if (p.image_url) {
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      // Fundo da área de imagem
+      ctx.fillStyle = '#f7f7f5';
+      ctx.fillRect(0, 118, 1080, 940);
+
+      // Centraliza imagem mantendo proporção
+      var maxW = 860, maxH = 820;
+      var ratio = Math.min(maxW / img.width, maxH / img.height);
+      var iw = img.width * ratio, ih = img.height * ratio;
+      var ix = (1080 - iw) / 2, iy = 118 + (940 - ih) / 2;
+      ctx.drawImage(img, ix, iy, iw, ih);
+
+      // Redesenha badge de desconto por cima da imagem
+      if (p.discount_percent) {
+        ctx.fillStyle = '#E24B4A';
+        roundRect(ctx, 820, 140, 220, 100, 50);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 52px DM Sans, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('-' + p.discount_percent + '% OFF', 930, 207);
+      }
+    };
+    img.onerror = function() {};
+    img.src = p.image_url;
+  } else {
+    ctx.fillStyle = '#f0ede8';
+    ctx.fillRect(0, 118, 1080, 940);
+    ctx.fillStyle = '#cccccc';
+    ctx.font = '48px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Sem imagem', 540, 600);
+  }
+}
+
+function downloadStory() {
+  var canvas = document.getElementById('story-canvas');
+  var link = document.createElement('a');
+  link.download = 'story-promobot.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  toast('Story baixado!', 'success');
+}
+
+// helpers canvas
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  var words = text.split(' ');
+  var line = '';
+  for (var i = 0; i < words.length; i++) {
+    var test = line + words[i] + ' ';
+    if (ctx.measureText(test).width > maxWidth && i > 0) {
+      ctx.fillText(line.trim(), x, y);
+      line = words[i] + ' ';
+      y += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  ctx.fillText(line.trim(), x, y);
+}
 // ─── INIT ─────────────────────────────────────────────────────
 render('dashboard');
 updateStatus();
