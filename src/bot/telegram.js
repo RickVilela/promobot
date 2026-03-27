@@ -77,7 +77,7 @@ async function sendPromotion(promo) {
   const telegramBot = getBot();
   if (!telegramBot) return { success: false, reason: 'Bot não configurado' };
 
-  const channels = getChannels().filter(c => c.active);
+  const channels = (await getChannels()).filter(c => c.active); // await aqui
   if (channels.length === 0) {
     return { success: false, reason: 'Nenhum canal ativo configurado' };
   }
@@ -99,27 +99,23 @@ async function sendPromotion(promo) {
 
     try {
       let sentMsg;
-
       if (promo.image_url) {
         try {
           sentMsg = await telegramBot.sendPhoto(channel.telegram_id, promo.image_url, {
-            caption: message,
-            parse_mode: 'HTML',
+            caption: message, parse_mode: 'HTML',
           });
         } catch {
           sentMsg = await telegramBot.sendMessage(channel.telegram_id, message, {
-            parse_mode: 'HTML',
-            disable_web_page_preview: false,
+            parse_mode: 'HTML', disable_web_page_preview: false,
           });
         }
       } else {
         sentMsg = await telegramBot.sendMessage(channel.telegram_id, message, {
-          parse_mode: 'HTML',
-          disable_web_page_preview: false,
+          parse_mode: 'HTML', disable_web_page_preview: false,
         });
       }
 
-      savePost({
+      await savePost({                                           // await aqui
         promotion_id: promo.id,
         channel_id: channel.id,
         telegram_message_id: String(sentMsg.message_id),
@@ -127,7 +123,6 @@ async function sendPromotion(promo) {
 
       console.log('[Bot] Postado em "' + channel.name + '": ' + promo.title.substring(0, 50));
       results.push({ channel: channel.name, success: true });
-
       await new Promise(r => setTimeout(r, 1000));
 
     } catch (err) {
@@ -143,7 +138,7 @@ async function sendAlert(message) {
   const telegramBot = getBot();
   if (!telegramBot) return;
 
-  const channels = getChannels().filter(c => c.active);
+  const channels = (await getChannels()).filter(c => c.active); // await aqui
   for (const channel of channels) {
     try {
       await telegramBot.sendMessage(channel.telegram_id, message, { parse_mode: 'HTML' });
