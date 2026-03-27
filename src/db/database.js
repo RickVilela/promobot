@@ -198,10 +198,17 @@ async function isSourceActive(id) {
   return rows[0] ? rows[0].active === 1 : false;
 }
 
-// Inicializa o schema ao subir
-initSchema().catch(console.error);
+let schemaReady = false;
+
+async function ensureSchema() {
+  if (!schemaReady) {
+    await initSchema();
+    schemaReady = true;
+  }
+}
 
 module.exports = {
+  ensureSchema,
   getDb, savePromotion, getPendingPromotions, markAsPosted, markAsIgnored,
   getHistory, getStats, getChannels, saveChannel, toggleChannel, savePost,
   getSources, toggleSource, updateSourceRun, isSourceActive,
