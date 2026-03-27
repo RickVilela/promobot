@@ -25,18 +25,13 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function sendPromotion(promo) {
   const results = {};
-
-  // Telegram
   const tg = await sendTelegram(promo);
   results.telegram = tg;
-
-  // WhatsApp (se configurado)
   if (whatsappConfigured()) {
     await delay(500);
     const wa = await sendWhatsApp(promo);
     results.whatsapp = wa;
   }
-
   return {
     success: results.telegram?.success || results.whatsapp?.success,
     results,
@@ -54,17 +49,17 @@ async function runScrapeAndPost() {
   const allPromos = [];
 
   // ── Shopee ──────────────────────────────────────────────
-  if (isSourceActive('shopee')) {
+  if (await isSourceActive('shopee')) {
     try {
       const r = await scrapeShopeeOffers(cfg.shopeeAffiliateTag || cfg.mlAffiliateTag, cfg.minDiscount);
       console.log(`[Scheduler] Shopee: ${r.length}`);
       allPromos.push(...r);
-      updateSourceRun('shopee', r.length);
+      await updateSourceRun('shopee', r.length);
     } catch (err) { console.error('[Scheduler] Shopee erro:', err.message); }
     await delay(2000);
   }
 
-  if (isSourceActive('shopee_kw')) {
+  if (await isSourceActive('shopee_kw')) {
     for (const kw of cfg.keywords.slice(0, 3)) {
       try {
         const r = await scrapeShopeeKeyword(kw, cfg.shopeeAffiliateTag || '', cfg.minDiscount);
@@ -72,16 +67,16 @@ async function runScrapeAndPost() {
         await delay(2000);
       } catch {}
     }
-    updateSourceRun('shopee_kw', 0);
+    await updateSourceRun('shopee_kw', 0);
   }
 
   // ── Rakuten ─────────────────────────────────────────────
-  if (isSourceActive('rakuten')) {
+  if (await isSourceActive('rakuten')) {
     try {
       const r = await scrapeRakutenOffers(cfg.mlAffiliateTag, cfg.minDiscount);
       console.log(`[Scheduler] Rakuten: ${r.length}`);
       allPromos.push(...r);
-      updateSourceRun('rakuten', r.length);
+      await updateSourceRun('rakuten', r.length);
     } catch (err) { console.error('[Scheduler] Rakuten erro:', err.message); }
     await delay(1500);
   }
@@ -89,18 +84,16 @@ async function runScrapeAndPost() {
   // ── Salva e posta ────────────────────────────────────────
   let savedCount = 0;
   for (const promo of allPromos) {
-    if (savePromotion(promo)) savedCount++;
+    if (await savePromotion(promo)) savedCount++;
   }
   console.log(`[Scheduler] ${savedCount} novas promoções salvas (${allPromos.length} encontradas)`);
 
-  // Posta apenas 1 promoção por ciclo — as demais ficam pendentes
-  // para serem postadas nos próximos ciclos (POST_INTERVAL_MINUTES)
-  const pending = getPendingPromotions();
+  const pending = await getPendingPromotions();
   let postedCount = 0;
   if (pending.length > 0) {
     const promo = pending[0];
     const result = await sendPromotion(promo);
-    if (result.success) { markAsPosted(promo.id); postedCount++; }
+    if (result.success) { await markAsPosted(promo.id); postedCount++; }
     console.log(`[Scheduler] Próxima promoção em ${cfg.postInterval / 60000} min (${pending.length - 1} na fila)`);
   }
 
@@ -116,13 +109,11 @@ function startScheduler() {
 
   console.log(`[Scheduler] Scraping a cada ${scrapeMinutes} min | Postagem a cada ${postMinutes} min`);
 
-  // Cron de SCRAPING — busca novas promoções periodicamente
   cron.schedule(`*/${scrapeMinutes} * * * *`, async () => {
     await runScrapeOnly();
     updateNextRun(postMinutes);
   });
 
-  // Cron de POSTAGEM — posta 1 promoção pendente a cada X minutos
   cronJob = cron.schedule(`*/${postMinutes} * * * *`, async () => {
     await postNext();
     updateNextRun(postMinutes);
@@ -130,14 +121,12 @@ function startScheduler() {
 
   updateNextRun(postMinutes);
 
-  // Execução inicial
   setTimeout(async () => {
     await runScrapeAndPost();
     updateNextRun(postMinutes);
   }, 5000);
 }
 
-// Só busca promoções sem postar
 async function runScrapeOnly() {
   if (isRunning) return;
   isRunning = true;
@@ -146,36 +135,35 @@ async function runScrapeOnly() {
   const cfg = getConfig();
   const allPromos = [];
 
-  if (isSourceActive('shopee')) {
+  if (await isSourceActive('shopee')) {
     try {
       const r = await scrapeShopeeOffers(cfg.shopeeAffiliateTag || cfg.mlAffiliateTag, cfg.minDiscount);
       allPromos.push(...r);
-      updateSourceRun('shopee', r.length);
+      await updateSourceRun('shopee', r.length);
     } catch {}
   }
-  if (isSourceActive('rakuten')) {
+  if (await isSourceActive('rakuten')) {
     try {
       const r = await scrapeRakutenOffers(cfg.mlAffiliateTag, cfg.minDiscount);
       allPromos.push(...r);
-      updateSourceRun('rakuten', r.length);
+      await updateSourceRun('rakuten', r.length);
     } catch {}
   }
 
   let saved = 0;
-  for (const p of allPromos) { if (savePromotion(p)) saved++; }
+  for (const p of allPromos) { if (await savePromotion(p)) saved++; }
   console.log(`[Scheduler] ${saved} novas promoções salvas`);
   isRunning = false;
 }
 
-// Posta apenas a próxima promoção pendente
 async function postNext() {
   if (isRunning) return;
-  const pending = getPendingPromotions();
+  const pending = await getPendingPromotions();
   if (!pending.length) { console.log('[Scheduler] Nenhuma promoção pendente'); return; }
   const promo = pending[0];
   console.log(`[Scheduler] Postando: "${promo.title.substring(0,45)}" (${pending.length - 1} na fila)`);
   const result = await sendPromotion(promo);
-  if (result.success) markAsPosted(promo.id);
+  if (result.success) await markAsPosted(promo.id);
 }
 
 function stopScheduler() { if (cronJob) cronJob.stop(); }

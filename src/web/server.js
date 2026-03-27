@@ -68,66 +68,111 @@ function scheduleTokenRefresh(expiresInSeconds) {
 }
 
 // ─── API ROUTES ────────────────────────────────────────────────
-app.get('/api/stats',   (req, res) => res.json({ ...getStats(), scheduler: getStatus() }));
-app.get('/api/status',  (req, res) => res.json(getStatus()));
-app.get('/api/pending', (req, res) => res.json(getPendingPromotions()));
-app.get('/api/history', (req, res) => res.json(getHistory(parseInt(req.query.limit)||50, parseInt(req.query.offset)||0)));
-app.get('/api/sources', (req, res) => res.json(getSources()));
-app.get('/api/channels',(req, res) => res.json(getChannels()));
+// Todas as rotas agora usam async/await corretamente
+app.get('/api/stats',   async (req, res) => {
+  try {
+    res.json({ ...await getStats(), scheduler: getStatus() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
-app.post('/api/channels', (req, res) => {
+app.get('/api/status',  (req, res) => res.json(getStatus()));
+
+app.get('/api/pending', async (req, res) => {
+  try {
+    res.json(await getPendingPromotions());
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/history', async (req, res) => {
+  try {
+    res.json(await getHistory(parseInt(req.query.limit)||50, parseInt(req.query.offset)||0));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sources', async (req, res) => {
+  try {
+    res.json(await getSources());
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/channels', async (req, res) => {
+  try {
+    res.json(await getChannels());
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/channels', async (req, res) => {
   const { telegram_id, name, category_filter } = req.body;
   if (!telegram_id || !name) return res.status(400).json({ error: 'telegram_id e name obrigatorios' });
-  saveChannel({ telegram_id, name, category_filter: category_filter || null, active: 1 });
-  res.json({ ok: true });
+  try {
+    await saveChannel({ telegram_id, name, category_filter: category_filter || null, active: 1 });
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/channels/:id/toggle', (req, res) => {
-  toggleChannel(parseInt(req.params.id));
-  res.json({ ok: true });
+app.patch('/api/channels/:id/toggle', async (req, res) => {
+  try {
+    await toggleChannel(parseInt(req.params.id));
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/sources/:id/toggle', (req, res) => {
-  toggleSource(req.params.id);
-  res.json({ ok: true });
+app.patch('/api/sources/:id/toggle', async (req, res) => {
+  try {
+    await toggleSource(req.params.id);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/promotions/manual', (req, res) => {
+app.post('/api/promotions/manual', async (req, res) => {
   const { title, sale_price, original_price, affiliate_url, image_url, seller, extra_info } = req.body;
   if (!title || !affiliate_url) return res.status(400).json({ error: 'titulo e link obrigatorios' });
-  const { savePromotion } = require('../db/database');
-  const crypto = require('crypto');
-  const sale = parseFloat(sale_price) || 0;
-  const original = parseFloat(original_price) || null;
-  let discount = null;
-  if (original && sale && original > sale) discount = Math.round(((original - sale) / original) * 100);
-  const saved = savePromotion({
-    ml_id: 'MANUAL_' + crypto.randomBytes(8).toString('hex'),
-    title: title.substring(0, 200), original_price: original, sale_price: sale,
-    discount_percent: discount, image_url: image_url || null,
-    original_url: affiliate_url, affiliate_url, category: seller || 'manual',
-    seller: seller || null, source: 'manual', extra_info: extra_info || null,
-  });
-  res.json({ ok: true, saved, message: saved ? 'Adicionada a fila' : 'Ja existe' });
+  try {
+    const { savePromotion } = require('../db/database');
+    const crypto = require('crypto');
+    const sale = parseFloat(sale_price) || 0;
+    const original = parseFloat(original_price) || null;
+    let discount = null;
+    if (original && sale && original > sale) discount = Math.round(((original - sale) / original) * 100);
+    const saved = await savePromotion({
+      ml_id: 'MANUAL_' + crypto.randomBytes(8).toString('hex'),
+      title: title.substring(0, 200), original_price: original, sale_price: sale,
+      discount_percent: discount, image_url: image_url || null,
+      original_url: affiliate_url, affiliate_url, category: seller || 'manual',
+      seller: seller || null, source: 'manual', extra_info: extra_info || null,
+    });
+    res.json({ ok: true, saved, message: saved ? 'Adicionada a fila' : 'Ja existe' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/promotions/:id/post', async (req, res) => {
-  const promo = getPendingPromotions().find(p => p.id === parseInt(req.params.id));
-  if (!promo) return res.status(404).json({ error: 'Nao encontrada' });
-  const result = await sendPromotion(promo);
-  if (result.success) markAsPosted(promo.id);
-  res.json(result);
+  try {
+    const pending = await getPendingPromotions();
+    const promo = pending.find(p => p.id === parseInt(req.params.id));
+    if (!promo) return res.status(404).json({ error: 'Nao encontrada' });
+    const result = await sendPromotion(promo);
+    if (result.success) await markAsPosted(promo.id);
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/promotions/:id/ignore', (req, res) => {
-  markAsIgnored(parseInt(req.params.id));
-  res.json({ ok: true });
+app.post('/api/promotions/:id/ignore', async (req, res) => {
+  try {
+    await markAsIgnored(parseInt(req.params.id));
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/promotions/:id/preview', (req, res) => {
-  const promo = [...getPendingPromotions(), ...getHistory(200, 0)].find(p => p.id === parseInt(req.params.id));
-  if (!promo) return res.status(404).json({ error: 'Nao encontrada' });
-  res.json({ message: buildMessage(promo) });
+app.get('/api/promotions/:id/preview', async (req, res) => {
+  try {
+    const [pending, history] = await Promise.all([
+      getPendingPromotions(),
+      getHistory(200, 0)
+    ]);
+    const promo = [...pending, ...history].find(p => p.id === parseInt(req.params.id));
+    if (!promo) return res.status(404).json({ error: 'Nao encontrada' });
+    res.json({ message: buildMessage(promo) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/scrape', async (req, res) => {
